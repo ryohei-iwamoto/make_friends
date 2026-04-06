@@ -1,65 +1,212 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+
+type Department = { id: number; name: string }
+
+export default function HomePage() {
+  const router = useRouter()
+  const [mode, setMode] = useState<'select' | 'login' | 'register'>('select')
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  // 既にログイン済みならマイページへ
+  useEffect(() => {
+    fetch('/api/me').then(r => r.json()).then(({ user }) => {
+      if (user) router.replace('/mypage')
+    })
+  }, [router])
+
+  useEffect(() => {
+    fetch('/api/departments').then(r => r.json()).then(({ departments }) => {
+      setDepartments(departments ?? [])
+    })
+  }, [])
+
+  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    const fd = new FormData(e.currentTarget)
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: fd.get('employee_id') }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setError(data.error); setLoading(false); return }
+    router.push('/mypage')
+  }
+
+  async function handleRegister(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    const fd = new FormData(e.currentTarget)
+    const res = await fetch('/api/auth/register', { method: 'POST', body: fd })
+    const data = await res.json()
+    if (!res.ok) { setError(data.error); setLoading(false); return }
+    router.push('/mypage')
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Make Friends</h1>
+        <p className="text-center text-gray-500 mb-8">グループ交流イベント</p>
+
+        {mode === 'select' && (
+          <div className="bg-white rounded-2xl shadow-md p-8 space-y-4">
+            <button
+              onClick={() => setMode('register')}
+              className="w-full bg-blue-600 text-white py-4 rounded-xl text-lg font-semibold hover:bg-blue-700 transition"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              はじめて参加する
+            </button>
+            <button
+              onClick={() => setMode('login')}
+              className="w-full bg-gray-100 text-gray-700 py-4 rounded-xl text-lg font-semibold hover:bg-gray-200 transition"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              既に登録済み
+            </button>
+          </div>
+        )}
+
+        {mode === 'login' && (
+          <div className="bg-white rounded-2xl shadow-md p-8">
+            <button onClick={() => setMode('select')} className="text-gray-400 mb-4 text-sm hover:text-gray-600">
+              ← 戻る
+            </button>
+            <h2 className="text-xl font-bold mb-6 text-gray-700">社員IDでログイン</h2>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <input
+                name="employee_id"
+                placeholder="社員ID"
+                required
+                inputMode="numeric"
+                pattern="[0-9]*"
+                onInput={e => {
+                  const el = e.currentTarget
+                  el.value = el.value.replace(/[^0-9]/g, '')
+                }}
+                className="w-full border border-gray-200 rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              {error && <p className="text-red-500 text-sm">{error}</p>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {loading ? 'ログイン中...' : 'ログイン'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {mode === 'register' && (
+          <div className="bg-white rounded-2xl shadow-md p-8">
+            <button onClick={() => setMode('select')} className="text-gray-400 mb-4 text-sm hover:text-gray-600">
+              ← 戻る
+            </button>
+            <h2 className="text-xl font-bold mb-6 text-gray-700">新規登録</h2>
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  社員ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  name="employee_id"
+                  placeholder="例：12345"
+                  required
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  onInput={e => {
+                    const el = e.currentTarget
+                    el.value = el.value.replace(/[^0-9]/g, '')
+                  }}
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <p className="text-xs text-gray-400 mt-1">社員証に書かれている数字を入力してください</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  部署 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="department_id"
+                  required
+                  defaultValue=""
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-700"
+                >
+                  <option value="" disabled>選択してください</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  氏名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  name="name"
+                  placeholder="例：山田 太郎"
+                  required
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  研修中グループID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  name="training_group_id"
+                  placeholder="例：92"
+                  required
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  onInput={e => {
+                    const el = e.currentTarget
+                    el.value = el.value.replace(/[^0-9]/g, '')
+                  }}
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <p className="text-xs text-gray-400 mt-1">「A」等のアルファベットは省き、後ろの数字のみ半角で入力してください（例：92）</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">自己紹介</label>
+                <textarea
+                  name="bio"
+                  placeholder={"例）趣味はサウナ巡りです！新しく組むグループでは、自分から積極的にコミュニケーションを取り、全員が発言しやすい雰囲気作りを頑張ります。よろしくお願いします！"}
+                  rows={5}
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                />
+                <p className="text-xs text-gray-400 mt-1">【趣味】と【意気込み】を含めて200文字程度で書いてください</p>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 mb-1">プロフィール写真（任意）</label>
+                <input
+                  name="photo"
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+              </div>
+              {error && <p className="text-red-500 text-sm">{error}</p>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {loading ? '登録中...' : '登録する'}
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
     </div>
-  );
+  )
 }
