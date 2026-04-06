@@ -12,9 +12,6 @@ export default function HomePage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [showWorkLocation, setShowWorkLocation] = useState(false)
-  const [showHobbyTendency, setShowHobbyTendency] = useState(false)
-
   useEffect(() => {
     fetch('/api/me').then(r => r.json()).then(({ user }) => {
       if (user) router.replace('/mypage')
@@ -22,13 +19,8 @@ export default function HomePage() {
   }, [router])
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/departments').then(r => r.json()),
-      fetch('/api/settings').then(r => r.json()),
-    ]).then(([deptData, settingsData]) => {
+    fetch('/api/departments').then(r => r.json()).then(deptData => {
       setDepartments(deptData.departments ?? [])
-      setShowWorkLocation(settingsData.showWorkLocation ?? false)
-      setShowHobbyTendency(settingsData.showHobbyTendency ?? false)
     })
   }, [])
 
@@ -177,57 +169,56 @@ export default function HomePage() {
                 <p className="text-xs text-gray-400 mt-1">「A」等のアルファベットは省き、後ろの数字のみ半角で入力してください（例：92）</p>
               </div>
 
-              {/* 勤務地（管理者が表示ON時のみ） */}
-              {showWorkLocation && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">勤務地</label>
-                  <select
-                    name="work_location"
-                    defaultValue=""
-                    className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-700"
-                  >
-                    <option value="">選択してください（任意）</option>
-                    {WORK_LOCATIONS.map(loc => (
-                      <option key={loc} value={loc}>{loc}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  勤務地 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="work_location"
+                  required
+                  defaultValue=""
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-700"
+                >
+                  <option value="" disabled>選択してください</option>
+                  {WORK_LOCATIONS.map(loc => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+              </div>
 
-              {/* 趣味の傾向（管理者が表示ON時のみ） */}
-              {showHobbyTendency && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-gray-600">趣味の傾向（任意）</p>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-2">どちらに近いですか？</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { value: 'indoor', label: '🏠 インドア派' },
-                        { value: 'outdoor', label: '🌿 アウトドア派' },
-                      ].map(opt => (
-                        <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
-                          <input type="radio" name="hobby_indoor_outdoor" value={opt.value} className="accent-blue-500" />
-                          <span className="text-sm text-gray-700">{opt.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-2">どちらの趣味が多いですか？</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { value: 'solo', label: '🙋 一人でできる' },
-                        { value: 'group', label: '👥 みんなでやる' },
-                      ].map(opt => (
-                        <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
-                          <input type="radio" name="hobby_solo_group" value={opt.value} className="accent-blue-500" />
-                          <span className="text-sm text-gray-700">{opt.label}</span>
-                        </label>
-                      ))}
-                    </div>
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-gray-600">
+                  趣味の傾向 <span className="text-red-500">*</span>
+                </p>
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">どちらに近いですか？</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'indoor', label: '🏠 インドア派' },
+                      { value: 'outdoor', label: '🌿 アウトドア派' },
+                    ].map(opt => (
+                      <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
+                        <input type="radio" name="hobby_indoor_outdoor" value={opt.value} required className="accent-blue-500" />
+                        <span className="text-sm text-gray-700">{opt.label}</span>
+                      </label>
+                    ))}
                   </div>
                 </div>
-              )}
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">どちらの趣味が多いですか？</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'solo', label: '🙋 一人でできる' },
+                      { value: 'group', label: '👥 みんなでやる' },
+                    ].map(opt => (
+                      <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
+                        <input type="radio" name="hobby_solo_group" value={opt.value} required className="accent-blue-500" />
+                        <span className="text-sm text-gray-700">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">自己紹介</label>

@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const hobby_indoor_outdoor = (formData.get('hobby_indoor_outdoor') as string) || null
   const hobby_solo_group = (formData.get('hobby_solo_group') as string) || null
 
-  if (!employee_id || !department_id || !name || !training_group_id) {
+  if (!employee_id || !department_id || !name || !training_group_id || !work_location || !hobby_indoor_outdoor || !hobby_solo_group) {
     return NextResponse.json({ error: '必須項目を入力してください' }, { status: 400 })
   }
 
