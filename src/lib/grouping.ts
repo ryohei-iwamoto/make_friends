@@ -210,9 +210,11 @@ function splitCluster(
 ): { groups: UserForGrouping[][], tgCounts: Map<string, number>[] } {
   const n = users.length
 
-  // ceil ベースでグループ数決定（floor より多くのグループを作ろうとする）
+  // round ベースでグループ数決定（target人数に最も近くなるように）
+  // n=7, target=6 → round(1.17)=1 → 7人1グループ（3/4に割らない）
+  // n=10, target=6 → round(1.67)=2 → [5,5]
   // その後、最低人数を確保できないなら1つ減らしていく
-  let groupCount = Math.max(1, Math.ceil(n / targetGroupSize))
+  let groupCount = Math.max(1, Math.round(n / targetGroupSize))
   while (groupCount > 1 && Math.floor(n / groupCount) < minGroupSize) {
     groupCount--
   }
