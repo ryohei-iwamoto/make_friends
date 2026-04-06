@@ -16,9 +16,8 @@ interface GroupAssignment {
  * - 6人1組を基本とし、余りは近隣グループに分散
  * - 同じグループに同一事業部をなるべく入れない
  */
-export function createGroups(users: UserForGrouping[]): GroupAssignment[] {
+export function createGroups(users: UserForGrouping[], baseGroupSize = 6): GroupAssignment[] {
   const totalUsers = users.length
-  const baseGroupSize = 6
   const groupCount = Math.floor(totalUsers / baseGroupSize)
   const remainder = totalUsers % baseGroupSize
 

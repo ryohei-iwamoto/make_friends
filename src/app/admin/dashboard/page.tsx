@@ -29,6 +29,7 @@ export default function AdminDashboard() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [resetting, setResetting] = useState(false)
+  const [groupSize, setGroupSize] = useState(6)
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/data')
@@ -40,10 +41,14 @@ export default function AdminDashboard() {
   useEffect(() => { load() }, [load])
 
   async function handleCreateGroups() {
-    if (!confirm(`${data?.users.length ?? 0}人を6人組に分けます。よろしいですか？`)) return
+    if (!confirm(`${data?.users.length ?? 0}人を${groupSize}人組に分けます。よろしいですか？`)) return
     setCreating(true)
     setCreateError('')
-    const res = await fetch('/api/admin/create-groups', { method: 'POST' })
+    const res = await fetch('/api/admin/create-groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupSize }),
+    })
     const d = await res.json()
     if (!res.ok) { setCreateError(d.error); setCreating(false); return }
     await load()
@@ -139,8 +144,20 @@ export default function AdminDashboard() {
             {!data.groupsLocked ? (
               <div className="bg-gray-800 rounded-xl p-4">
                 <h2 className="font-bold mb-2">グループ作成</h2>
+                <div className="flex items-center gap-3 mb-4">
+                  <label className="text-gray-400 text-sm whitespace-nowrap">1グループの人数</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={20}
+                    value={groupSize}
+                    onChange={e => setGroupSize(Math.max(2, Math.min(20, Number(e.target.value))))}
+                    className="w-20 bg-gray-700 text-white text-center rounded-lg px-2 py-1 text-sm border border-gray-600 focus:outline-none focus:border-blue-400"
+                  />
+                  <span className="text-gray-400 text-sm">人</span>
+                </div>
                 <p className="text-gray-400 text-sm mb-4">
-                  {data.users.length}人を6人組のグループに分けます。
+                  {data.users.length}人を約{groupSize}人組に分けます。
                   実行後は取り消せません。
                 </p>
                 {createError && <p className="text-red-400 text-sm mb-3">{createError}</p>}

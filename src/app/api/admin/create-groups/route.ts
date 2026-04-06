@@ -20,6 +20,9 @@ export async function POST(req: NextRequest) {
   }
 
   // 全登録ユーザー取得
+  const body = await req.json().catch(() => ({})) as { groupSize?: number }
+  const groupSize = Math.max(2, Math.min(20, Number(body.groupSize) || 6))
+
   const { data: users, error: usersError } = await supabase
     .from('users')
     .select('id, department_id')
@@ -29,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   // グループ分けアルゴリズム実行
-  const assignments = createGroups(users)
+  const assignments = createGroups(users, groupSize)
 
   // トランザクション的に保存
   const errors: string[] = []
