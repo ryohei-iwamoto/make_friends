@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       .order('taken_at', { ascending: false }),
     supabase
       .from('users')
-      .select('id, name, employee_id, group_id, departments(name)')
+      .select('id, name, employee_id, group_id, training_group_id, work_location, hobby_indoor_outdoor, hobby_solo_group, departments(name)')
       .order('group_id'),
     supabase
       .from('app_settings')

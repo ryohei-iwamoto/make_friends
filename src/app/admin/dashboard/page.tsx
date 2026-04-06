@@ -12,6 +12,10 @@ type User = {
   name: string
   employee_id: string
   group_id: number | null
+  training_group_id: string | null
+  work_location: string | null
+  hobby_indoor_outdoor: string | null
+  hobby_solo_group: string | null
   departments: { name: string } | null
 }
 type Settings = {
@@ -304,15 +308,35 @@ export default function AdminDashboard() {
                         {members.length}人
                       </span>
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {members.map(m => (
-                        <div key={m.id} className="flex items-center gap-2">
-                          <span className="text-sm font-medium" style={{ color: textColor }}>
-                            {m.name}
-                          </span>
-                          <span className="text-xs opacity-60" style={{ color: textColor }}>
-                            {m.departments?.name}
-                          </span>
+                        <div key={m.id}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium" style={{ color: textColor }}>
+                              {m.name}
+                            </span>
+                            <span className="text-xs opacity-60" style={{ color: textColor }}>
+                              {m.departments?.name}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 mt-0.5">
+                            {m.training_group_id && (
+                              <span className="text-xs opacity-50" style={{ color: textColor }}>
+                                研修: {m.training_group_id}
+                              </span>
+                            )}
+                            {m.work_location && (
+                              <span className="text-xs opacity-50" style={{ color: textColor }}>
+                                {m.work_location}
+                              </span>
+                            )}
+                            {m.hobby_indoor_outdoor && (
+                              <span className="text-xs opacity-50" style={{ color: textColor }}>
+                                {m.hobby_indoor_outdoor === 'indoor' ? '屋内' : '屋外'}
+                                {m.hobby_solo_group ? `・${m.hobby_solo_group === 'solo' ? 'ソロ' : 'グループ'}` : ''}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>

@@ -76,71 +76,120 @@ export function createGroups(
 
 // ── Step1: クラスタ確定 ───────────────────────────────────────────────
 
+/**
+ * 勤務地・趣味の設定に応じてユーザーをクラスタに分類する。
+ *
+ * hobby ON の場合、各勤務地内で4段階カスケード:
+ *   L1: (indoor/outdoor × solo/group) の4象限
+ *   L2: (indoor/outdoor) の2分割       ← L1が minGroupSize 未満
+ *   L3: 趣味の垣根を外す（勤務地のみ）  ← L2が minGroupSize 未満
+ *   overflow: 勤務地ごとまとめて小さい同士でくっつける ← L3も未満
+ */
 function buildClusters(
   users: UserForGrouping[],
   useLocation: boolean,
   useHobby: boolean,
   minGroupSize: number,
 ): UserForGrouping[][] {
-  // クラスタリングOFF: 全員1クラスタ
   if (!useLocation && !useHobby) return [users]
 
-  // 勤務地でグループ化
   const byLoc = new Map<string, UserForGrouping[]>()
   for (const u of users) {
-    const loc = getLocationRegion(u.work_location)
+    const loc = useLocation ? getLocationRegion(u.work_location) : 'all'
     if (!byLoc.has(loc)) byLoc.set(loc, [])
     byLoc.get(loc)!.push(u)
   }
 
   const clusters: UserForGrouping[][] = []
-  const overflow: UserForGrouping[] = []  // minGroupSize 未満で行き場のないユーザー
+  const overflowClusters: UserForGrouping[][] = []
 
   for (const [, locUsers] of byLoc) {
     if (!useHobby) {
-      // 勤務地のみ
       if (locUsers.length >= minGroupSize) {
         clusters.push(locUsers)
       } else {
-        overflow.push(...locUsers)
+        overflowClusters.push(locUsers)
       }
       continue
     }
 
-    // 勤務地 × 趣味フィールド
-    const byField = new Map<string, UserForGrouping[]>()
+    // L1: 4象限（indoor/outdoor × solo/group）でクラスタ化
+    const byQuadrant = new Map<string, UserForGrouping[]>()
     for (const u of locUsers) {
-      const field = u.hobby_indoor_outdoor ?? 'unknown'
-      if (!byField.has(field)) byField.set(field, [])
-      byField.get(field)!.push(u)
+      const io = u.hobby_indoor_outdoor ?? 'unknown'
+      const sg = u.hobby_solo_group ?? 'unknown'
+      const key = `${io}|${sg}`
+      if (!byQuadrant.has(key)) byQuadrant.set(key, [])
+      byQuadrant.get(key)!.push(u)
     }
 
-    // adequate（≥ minGroupSize）はそのままクラスタ化
-    // small（< minGroupSize）は同勤務地内でまとめる
-    const smallInLoc: UserForGrouping[] = []
-    for (const [, fieldUsers] of byField) {
-      if (fieldUsers.length >= minGroupSize) {
-        clusters.push(fieldUsers)
+    // L1が minGroupSize 未満 → L2（indoor/outdoor）へ集約
+    const smallForL2 = new Map<string, UserForGrouping[]>()
+    for (const [qKey, qUsers] of byQuadrant) {
+      if (qUsers.length >= minGroupSize) {
+        clusters.push(qUsers)
       } else {
-        smallInLoc.push(...fieldUsers)
+        const io = qKey.split('|')[0]
+        if (!smallForL2.has(io)) smallForL2.set(io, [])
+        smallForL2.get(io)!.push(...qUsers)
       }
     }
 
-    if (smallInLoc.length === 0) continue
+    // L2が minGroupSize 未満 → L3（勤務地のみ）へ集約
+    const smallForL3: UserForGrouping[] = []
+    for (const [, ioUsers] of smallForL2) {
+      if (ioUsers.length >= minGroupSize) {
+        clusters.push(ioUsers)
+      } else {
+        smallForL3.push(...ioUsers)
+      }
+    }
 
-    if (smallInLoc.length >= minGroupSize) {
-      clusters.push(smallInLoc)   // 合流後に adequate になった
-    } else {
-      overflow.push(...smallInLoc) // 合流後もまだ小さい → overflow
+    // L3が minGroupSize 未満 → overflow（小さい同士でくっつける）
+    if (smallForL3.length >= minGroupSize) {
+      clusters.push(smallForL3)
+    } else if (smallForL3.length > 0) {
+      overflowClusters.push(smallForL3)
     }
   }
 
-  // overflow は1つのクラスタとしてまとめる
-  if (overflow.length > 0) {
-    clusters.push(overflow)
-  }
+  // overflow: 小さいクラスタ同士を順に合流（少ない同士でくっつける）
+  clusters.push(...pairSmallClusters(overflowClusters, minGroupSize))
 
   return clusters
+}
+
+/**
+ * 小さいクラスタ同士を小さい順に合流させ、minGroupSize 以上になったら確定。
+ * 最後に残った端数は直前のクラスタに吸収。
+ */
+function pairSmallClusters(
+  small: UserForGrouping[][],
+  minGroupSize: number,
+): UserForGrouping[][] {
+  if (small.length === 0) return []
+
+  const sorted = [...small].sort((a, b) => a.length - b.length)
+  const result: UserForGrouping[][] = []
+  let current: UserForGrouping[] = []
+
+  for (const cluster of sorted) {
+    current.push(...cluster)
+    if (current.length >= minGroupSize) {
+      result.push(current)
+      current = []
+    }
+  }
+
+  if (current.length > 0) {
+    if (result.length > 0) {
+      result[result.length - 1].push(...current)
+    } else {
+      result.push(current) // 全員合わせても minGroupSize 未満の場合
+    }
+  }
+
+  return result
 }
 
 // ── Step2: クラスタ内を targetGroupSize で分割 ───────────────────────
