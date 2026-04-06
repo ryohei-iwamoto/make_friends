@@ -24,24 +24,26 @@ export interface GroupingOptions {
 /**
  * グループ分けアルゴリズム
  *
- * targetGroupSize: 目安の人数（グループ数・シールのタイミングを決定）
- * minGroupSize:    最低人数（これを下回るグループは前のグループに吸収）
+ * Step1: クラスタ確定
+ *   [location OFF / hobby OFF]
+ *     全員を1クラスタとして扱う（部署多様性のみで分割）
  *
- * [クラスタリングOFF]
- *   部署の人数順ラウンドロビン + TG制約。グループ数は targetGroupSize で均等割り。
- *   最終的に minGroupSize 未満のグループは前のグループに吸収。
+ *   [location ON / hobby OFF]
+ *     同じ勤務地エリアを1クラスタ。
+ *     クラスタが minGroupSize 未満 → overflow（他の小クラスタと合流）
  *
- * [クラスタリングON（location/hobby いずれか or 両方）]
- *   Phase1: クラスタ優先の初期割り当て
- *     クラスタキー = (勤務地エリア × hobby_indoor_outdoor) のうち有効な軸のみ使用。
- *     両方ONのとき: クラスタが3人以下 → 勤務地のみにマージ → それも3人以下 → 'global'
- *     どちらか片方: クラスタが3人以下 → 'global' にマージ
- *     クラスタ境界で人数 ≥ targetGroupSize になったらグループ確定。
- *     最終的に minGroupSize 未満のグループは前のグループに吸収。
- *     TG制約（同研修グループは同グループ不可）はハード制約。
+ *   [location ON / hobby ON]
+ *     同勤務地 × 同フィールド（indoor/outdoor）を1クラスタ。
+ *     (loc × field) が minGroupSize 未満 → 同勤務地内の小クラスタ同士を合流。
+ *     合流後もまだ minGroupSize 未満 → overflow。
  *
- *   Phase2: 部署多様性スコアを最小化するスワップ最適化（10パス）
- *     TG制約を守りながらスコアが下がるスワップのみ採用。
+ * Step2: クラスタ内を分割
+ *   groupCount = floor(clusterSize / targetGroupSize)（最低1）
+ *   残りは先頭グループに +1 ずつ配る（例: 6,6,7,7）。
+ *   部署ラウンドロビン + TG制約でユーザーを割り当て。
+ *
+ * Step3: クラスタ内でスワップ最適化（部署多様性スコア最小化）
+ *   ※クラスタをまたいだスワップは行わない（勤務地グループを維持するため）
  */
 export function createGroups(
   users: UserForGrouping[],
@@ -53,37 +55,124 @@ export function createGroups(
 
   const { useLocationGrouping = false, useHobbyGrouping = false } = options
 
-  if (!useLocationGrouping && !useHobbyGrouping) {
-    return createGroupsByDept(users, targetGroupSize, minGroupSize)
+  // Step1: クラスタ確定
+  const clusters = buildClusters(users, useLocationGrouping, useHobbyGrouping, minGroupSize)
+
+  // Step2+3: クラスタごとに分割 → スワップ最適化
+  const allGroups: UserForGrouping[][] = []
+
+  for (const cluster of clusters) {
+    const { groups, tgCounts } = splitCluster(cluster, targetGroupSize)
+    swapOptimize(groups, tgCounts)
+    allGroups.push(...groups)
   }
 
-  return createGroupsByCluster(users, targetGroupSize, minGroupSize, useLocationGrouping, useHobbyGrouping)
+  return allGroups.map((members, g) => ({
+    groupNumber: g + 1,
+    color: GROUP_COLORS[g % GROUP_COLORS.length],
+    userIds: members.map(u => u.id),
+  }))
 }
 
-// ── 非クラスタリングモード: 部署の人数順ラウンドロビン ──────────────
+// ── Step1: クラスタ確定 ───────────────────────────────────────────────
 
-function createGroupsByDept(users: UserForGrouping[], targetGroupSize: number, minGroupSize: number): GroupAssignment[] {
-  const totalUsers = users.length
-  const groupCount = Math.max(1, Math.floor(totalUsers / targetGroupSize))
-  const remainder = totalUsers % targetGroupSize
+function buildClusters(
+  users: UserForGrouping[],
+  useLocation: boolean,
+  useHobby: boolean,
+  minGroupSize: number,
+): UserForGrouping[][] {
+  // クラスタリングOFF: 全員1クラスタ
+  if (!useLocation && !useHobby) return [users]
 
-  const groupSizes: number[] = Array(groupCount).fill(targetGroupSize)
-  for (let i = 0; i < remainder; i++) groupSizes[i % groupCount]++
+  // 勤務地でグループ化
+  const byLoc = new Map<string, UserForGrouping[]>()
+  for (const u of users) {
+    const loc = getLocationRegion(u.work_location)
+    if (!byLoc.has(loc)) byLoc.set(loc, [])
+    byLoc.get(loc)!.push(u)
+  }
+
+  const clusters: UserForGrouping[][] = []
+  const overflow: UserForGrouping[] = []  // minGroupSize 未満で行き場のないユーザー
+
+  for (const [, locUsers] of byLoc) {
+    if (!useHobby) {
+      // 勤務地のみ
+      if (locUsers.length >= minGroupSize) {
+        clusters.push(locUsers)
+      } else {
+        overflow.push(...locUsers)
+      }
+      continue
+    }
+
+    // 勤務地 × 趣味フィールド
+    const byField = new Map<string, UserForGrouping[]>()
+    for (const u of locUsers) {
+      const field = u.hobby_indoor_outdoor ?? 'unknown'
+      if (!byField.has(field)) byField.set(field, [])
+      byField.get(field)!.push(u)
+    }
+
+    // adequate（≥ minGroupSize）はそのままクラスタ化
+    // small（< minGroupSize）は同勤務地内でまとめる
+    const smallInLoc: UserForGrouping[] = []
+    for (const [, fieldUsers] of byField) {
+      if (fieldUsers.length >= minGroupSize) {
+        clusters.push(fieldUsers)
+      } else {
+        smallInLoc.push(...fieldUsers)
+      }
+    }
+
+    if (smallInLoc.length === 0) continue
+
+    if (smallInLoc.length >= minGroupSize) {
+      clusters.push(smallInLoc)   // 合流後に adequate になった
+    } else {
+      overflow.push(...smallInLoc) // 合流後もまだ小さい → overflow
+    }
+  }
+
+  // overflow は1つのクラスタとしてまとめる
+  if (overflow.length > 0) {
+    clusters.push(overflow)
+  }
+
+  return clusters
+}
+
+// ── Step2: クラスタ内を targetGroupSize で分割 ───────────────────────
+
+function splitCluster(
+  users: UserForGrouping[],
+  targetGroupSize: number,
+): { groups: UserForGrouping[][], tgCounts: Map<string, number>[] } {
+  const n = users.length
+  const groupCount = Math.max(1, Math.floor(n / targetGroupSize))
+
+  // グループサイズを均等に配分（例: 13人を2分割 → [7, 6]）
+  const base = Math.floor(n / groupCount)
+  const extra = n - base * groupCount
+  const groupSizes = Array.from({ length: groupCount }, (_, i) => base + (i < extra ? 1 : 0))
 
   const groups: UserForGrouping[][] = Array.from({ length: groupCount }, () => [])
-  const tgCountInGroup: Map<string, number>[] = Array.from({ length: groupCount }, () => new Map())
+  const tgCounts: Map<string, number>[] = Array.from({ length: groupCount }, () => new Map())
   const deferred: UserForGrouping[] = []
 
+  // 部署ラウンドロビン + TG制約
+  const shuffled = [...users]
+  shuffleArray(shuffled)
+
   const byDept = new Map<number, UserForGrouping[]>()
-  for (const u of users) {
+  for (const u of shuffled) {
     if (!byDept.has(u.department_id)) byDept.set(u.department_id, [])
     byDept.get(u.department_id)!.push(u)
   }
   for (const [deptId, members] of byDept) {
-    shuffleArray(members)
     byDept.set(deptId, interleaveTG(members))
   }
-
   const sortedDepts = Array.from(byDept.values()).sort((a, b) => b.length - a.length)
 
   let cursor = 0
@@ -94,9 +183,9 @@ function createGroupsByDept(users: UserForGrouping[], targetGroupSize: number, m
 
       for (let d = 0; d < groupCount; d++) {
         const g = (cursor + d) % groupCount
-        if (groups[g].length < groupSizes[g] && !(tgCountInGroup[g].get(tgKey) ?? 0)) {
+        if (groups[g].length < groupSizes[g] && !(tgCounts[g].get(tgKey) ?? 0)) {
           groups[g].push(user)
-          tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
+          tgCounts[g].set(tgKey, 1)
           cursor = (g + 1) % groupCount
           placed = true
           break
@@ -109,151 +198,33 @@ function createGroupsByDept(users: UserForGrouping[], targetGroupSize: number, m
 
   for (const user of deferred) {
     const tgKey = user.training_group_id ?? '__none__'
-    for (let g = 0; g < groupCount; g++) {
-      if (groups[g].length < groupSizes[g] && !(tgCountInGroup[g].get(tgKey) ?? 0)) {
-        groups[g].push(user)
-        tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
-        break
-      }
-    }
-  }
-
-  // minGroupSize 未満のグループを前のグループに吸収
-  mergeSmallGroups(groups, tgCountInGroup, minGroupSize)
-
-  return applySwapOptimization(groups, tgCountInGroup)
-}
-
-// ── クラスタリングモード ──────────────────────────────────────────────
-
-function createGroupsByCluster(
-  users: UserForGrouping[],
-  targetGroupSize: number,
-  minGroupSize: number,
-  useLocation: boolean,
-  useHobby: boolean,
-): GroupAssignment[] {
-  // クラスタキーのカウント（フォールバック判定用）
-  const primaryCount = new Map<string, number>()
-  const locationCount = new Map<string, number>()
-
-  for (const u of users) {
-    const loc = useLocation ? getLocationRegion(u.work_location) : 'all'
-    const field = useHobby ? (u.hobby_indoor_outdoor ?? 'unknown') : 'all'
-    const pk = `${loc}|${field}`
-    primaryCount.set(pk, (primaryCount.get(pk) ?? 0) + 1)
-    if (useLocation) locationCount.set(loc, (locationCount.get(loc) ?? 0) + 1)
-  }
-
-  const getClusterKey = (u: UserForGrouping): string => {
-    const loc = useLocation ? getLocationRegion(u.work_location) : 'all'
-    const field = useHobby ? (u.hobby_indoor_outdoor ?? 'unknown') : 'all'
-    const pk = `${loc}|${field}`
-
-    if (useLocation && useHobby) {
-      // 両方ON: primary → location-only → global
-      if ((primaryCount.get(pk) ?? 0) > 3) return pk
-      if ((locationCount.get(loc) ?? 0) > 3) return `${loc}|any`
-      return 'global'
-    }
-
-    // 片方のみ: primary → global
-    if ((primaryCount.get(pk) ?? 0) > 3) return pk
-    return 'global'
-  }
-
-  // バケット作成
-  const bucketMap = new Map<string, UserForGrouping[]>()
-  for (const u of users) {
-    const key = getClusterKey(u)
-    if (!bucketMap.has(key)) bucketMap.set(key, [])
-    bucketMap.get(key)!.push(u)
-  }
-
-  // バケット内でTGをインターリーブ
-  for (const [bKey, members] of bucketMap) {
-    shuffleArray(members)
-    bucketMap.set(bKey, interleaveTG(members))
-  }
-
-  // 大きいバケットから処理
-  const sortedBuckets = Array.from(bucketMap.values()).sort((a, b) => b.length - a.length)
-
-  const groups: UserForGrouping[][] = [[]]
-  const tgCountInGroup: Map<string, number>[] = [new Map()]
-  const deferred: UserForGrouping[] = []
-
-  for (const bucket of sortedBuckets) {
-    const currentIdx = groups.length - 1
-
-    for (const user of bucket) {
-      const tgKey = user.training_group_id ?? '__none__'
-      let placed = false
-
-      if (!(tgCountInGroup[currentIdx].get(tgKey) ?? 0)) {
-        groups[currentIdx].push(user)
-        tgCountInGroup[currentIdx].set(tgKey, 1)
-        placed = true
-      }
-
-      if (!placed) {
-        for (let g = 0; g < currentIdx; g++) {
-          if (!(tgCountInGroup[g].get(tgKey) ?? 0)) {
-            groups[g].push(user)
-            tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
-            placed = true
-            break
-          }
-        }
-      }
-
-      if (!placed) deferred.push(user)
-    }
-
-    // バケット完了: targetGroupSize 以上ならシール
-    if (groups[groups.length - 1].length >= targetGroupSize) {
-      groups.push([])
-      tgCountInGroup.push(new Map())
-    }
-  }
-
-  // 後回しユーザー配置
-  for (const user of deferred) {
-    const tgKey = user.training_group_id ?? '__none__'
     let placed = false
-    for (let g = 0; g < groups.length; g++) {
-      if (!(tgCountInGroup[g].get(tgKey) ?? 0)) {
+    for (let g = 0; g < groupCount; g++) {
+      if (!(tgCounts[g].get(tgKey) ?? 0)) {
         groups[g].push(user)
-        tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
+        tgCounts[g].set(tgKey, (tgCounts[g].get(tgKey) ?? 0) + 1)
         placed = true
         break
       }
     }
     if (!placed) {
+      // TG制約を満たせない → 最小グループへ強制配置
       const minIdx = groups.reduce((mi, g, i) => g.length < groups[mi].length ? i : mi, 0)
       groups[minIdx].push(user)
     }
   }
 
-  // 末尾の空グループを削除
-  if (groups[groups.length - 1].length === 0) {
-    groups.pop()
-    tgCountInGroup.pop()
-  }
-
-  // minGroupSize 未満のグループを前のグループに吸収
-  mergeSmallGroups(groups, tgCountInGroup, minGroupSize)
-
-  return applySwapOptimization(groups, tgCountInGroup)
+  return { groups, tgCounts }
 }
 
-// ── Phase 2: 部署多様性スコアを最小化するスワップ最適化 ──────────────
+// ── Step3: 部署多様性スコアを最小化するスワップ最適化（クラスタ内） ──
 
-function applySwapOptimization(
+function swapOptimize(
   groups: UserForGrouping[][],
-  tgCountInGroup: Map<string, number>[],
-): GroupAssignment[] {
+  tgCounts: Map<string, number>[],
+): void {
   const groupCount = groups.length
+  if (groupCount < 2) return
 
   for (let pass = 0; pass < 10; pass++) {
     const gOrder = Array.from({ length: groupCount }, (_, i) => i)
@@ -275,17 +246,17 @@ function applySwapOptimization(
             const tg2 = u2.training_group_id ?? '__none__'
 
             if (tg1 === tg2) continue
-            if ((tgCountInGroup[g1].get(tg2) ?? 0) > 0) continue
-            if ((tgCountInGroup[g2].get(tg1) ?? 0) > 0) continue
+            if ((tgCounts[g1].get(tg2) ?? 0) > 0) continue
+            if ((tgCounts[g2].get(tg1) ?? 0) > 0) continue
 
-            const scoreBefore = deptScore(groups[g1]) + deptScore(groups[g2])
+            const before = deptScore(groups[g1]) + deptScore(groups[g2])
             groups[g1][i] = u2
             groups[g2][j] = u1
-            const scoreAfter = deptScore(groups[g1]) + deptScore(groups[g2])
+            const after = deptScore(groups[g1]) + deptScore(groups[g2])
             groups[g1][i] = u1
             groups[g2][j] = u2
 
-            const improvement = scoreBefore - scoreAfter
+            const improvement = before - after
             if (improvement > bestImprovement) {
               bestImprovement = improvement
               bestG2 = g2
@@ -299,44 +270,17 @@ function applySwapOptimization(
           const tg2 = u2.training_group_id ?? '__none__'
           groups[g1][i] = u2
           groups[bestG2][bestJ] = u1
-          tgCountInGroup[g1].set(tg1, tgCountInGroup[g1].get(tg1)! - 1)
-          tgCountInGroup[g1].set(tg2, (tgCountInGroup[g1].get(tg2) ?? 0) + 1)
-          tgCountInGroup[bestG2].set(tg2, tgCountInGroup[bestG2].get(tg2)! - 1)
-          tgCountInGroup[bestG2].set(tg1, (tgCountInGroup[bestG2].get(tg1) ?? 0) + 1)
+          tgCounts[g1].set(tg1, tgCounts[g1].get(tg1)! - 1)
+          tgCounts[g1].set(tg2, (tgCounts[g1].get(tg2) ?? 0) + 1)
+          tgCounts[bestG2].set(tg2, tgCounts[bestG2].get(tg2)! - 1)
+          tgCounts[bestG2].set(tg1, (tgCounts[bestG2].get(tg1) ?? 0) + 1)
         }
       }
     }
   }
-
-  return groups.map((members, g) => ({
-    groupNumber: g + 1,
-    color: GROUP_COLORS[g % GROUP_COLORS.length],
-    userIds: members.map(u => u.id),
-  }))
 }
 
 // ── ユーティリティ ─────────────────────────────────────────────────────
-
-/** minGroupSize 未満のグループを末尾から順に前のグループに吸収する */
-function mergeSmallGroups(
-  groups: UserForGrouping[][],
-  tgCountInGroup: Map<string, number>[],
-  minGroupSize: number,
-): void {
-  let i = groups.length - 1
-  while (i > 0 && groups[i].length < minGroupSize) {
-    const small = groups.splice(i, 1)[0]
-    const tgSmall = tgCountInGroup.splice(i, 1)[0]
-    const targetIdx = i - 1
-    for (const u of small) {
-      groups[targetIdx].push(u)
-      const tgKey = u.training_group_id ?? '__none__'
-      tgCountInGroup[targetIdx].set(tgKey, (tgCountInGroup[targetIdx].get(tgKey) ?? 0) + 1)
-    }
-    void tgSmall
-    i--
-  }
-}
 
 /** TGをインターリーブして同TGが連続しないよう並べ直す */
 function interleaveTG(members: UserForGrouping[]): UserForGrouping[] {
