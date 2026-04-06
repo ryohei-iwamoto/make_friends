@@ -36,6 +36,7 @@ export default function AdminDashboard() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [resetting, setResetting] = useState(false)
+  const [targetGroupSize, setTargetGroupSize] = useState(6)
   const [minGroupSize, setMinGroupSize] = useState(4)
   const [savingSettings, setSavingSettings] = useState(false)
 
@@ -64,13 +65,14 @@ export default function AdminDashboard() {
   }
 
   async function handleCreateGroups() {
-    if (!confirm(`${data?.users.length ?? 0}人を最低${minGroupSize}人組に分けます。よろしいですか？`)) return
+    if (!confirm(`${data?.users.length ?? 0}人を目安${targetGroupSize}人・最低${minGroupSize}人で分けます。よろしいですか？`)) return
     setCreating(true)
     setCreateError('')
     const res = await fetch('/api/admin/create-groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        targetGroupSize,
         minGroupSize,
         useLocationGrouping: data?.settings.useLocationGrouping ?? false,
         useHobbyGrouping: data?.settings.useHobbyGrouping ?? false,
@@ -208,20 +210,38 @@ export default function AdminDashboard() {
             {!data.groupsLocked ? (
               <div className="bg-gray-800 rounded-xl p-4">
                 <h2 className="font-bold mb-2">グループ作成</h2>
-                <div className="flex items-center gap-3 mb-4">
-                  <label className="text-gray-400 text-sm whitespace-nowrap">1グループの最低人数</label>
-                  <input
-                    type="number"
-                    min={2}
-                    max={20}
-                    value={minGroupSize}
-                    onChange={e => setMinGroupSize(Math.max(2, Math.min(20, Number(e.target.value))))}
-                    className="w-20 bg-gray-700 text-white text-center rounded-lg px-2 py-1 text-sm border border-gray-600 focus:outline-none focus:border-blue-400"
-                  />
-                  <span className="text-gray-400 text-sm">人以上</span>
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center gap-3">
+                    <label className="text-gray-400 text-sm w-32">目安の人数</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={50}
+                      value={targetGroupSize}
+                      onChange={e => {
+                        const v = Math.max(2, Math.min(50, Number(e.target.value)))
+                        setTargetGroupSize(v)
+                        if (minGroupSize > v) setMinGroupSize(v)
+                      }}
+                      className="w-20 bg-gray-700 text-white text-center rounded-lg px-2 py-1 text-sm border border-gray-600 focus:outline-none focus:border-blue-400"
+                    />
+                    <span className="text-gray-400 text-sm">人</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-gray-400 text-sm w-32">最低人数</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={targetGroupSize}
+                      value={minGroupSize}
+                      onChange={e => setMinGroupSize(Math.max(2, Math.min(targetGroupSize, Number(e.target.value))))}
+                      className="w-20 bg-gray-700 text-white text-center rounded-lg px-2 py-1 text-sm border border-gray-600 focus:outline-none focus:border-blue-400"
+                    />
+                    <span className="text-gray-400 text-sm">人以上</span>
+                  </div>
                 </div>
                 <p className="text-gray-400 text-sm mb-4">
-                  {data.users.length}人を最低{minGroupSize}人組に分けます（勤務地・趣味フィールド優先）。
+                  {data.users.length}人を目安{targetGroupSize}人・最低{minGroupSize}人で分けます。
                   実行後は取り消せません。
                 </p>
                 {createError && <p className="text-red-400 text-sm mb-3">{createError}</p>}

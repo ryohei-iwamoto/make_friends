@@ -20,11 +20,13 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({})) as {
+    targetGroupSize?: number
     minGroupSize?: number
     useLocationGrouping?: boolean
     useHobbyGrouping?: boolean
   }
-  const minGroupSize = Math.max(2, Math.min(20, Number(body.minGroupSize) || 4))
+  const targetGroupSize = Math.max(2, Math.min(50, Number(body.targetGroupSize) || 6))
+  const minGroupSize = Math.max(2, Math.min(targetGroupSize, Number(body.minGroupSize) || 4))
   const useLocationGrouping = body.useLocationGrouping ?? false
   const useHobbyGrouping = body.useHobbyGrouping ?? false
 
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '登録ユーザーがいません' }, { status: 400 })
   }
 
-  const assignments = createGroups(users, minGroupSize, { useLocationGrouping, useHobbyGrouping })
+  const assignments = createGroups(users, targetGroupSize, minGroupSize, { useLocationGrouping, useHobbyGrouping })
 
   const errors: string[] = []
 
