@@ -24,26 +24,23 @@ export interface GroupingOptions {
 /**
  * グループ分けアルゴリズム
  *
- * Step1: クラスタ確定
- *   [location OFF / hobby OFF]
- *     全員を1クラスタとして扱う（部署多様性のみで分割）
+ * [location OFF / hobby OFF]
+ *   - 同じ研修グループは絶対被らせない（strictTG）
+ *   - なるべく違う事業部
  *
- *   [location ON / hobby OFF]
- *     同じ勤務地エリアを1クラスタ。
- *     クラスタが minGroupSize 未満 → overflow（他の小クラスタと合流）
+ * [location ON / hobby OFF]
+ *   - 絶対同じ勤務地でまとめる
+ *   - なるべく違う事業部
+ *   - 同じ研修グループは極力被らせない
  *
- *   [location ON / hobby ON]
- *     同勤務地 × 同フィールド（indoor/outdoor）を1クラスタ。
- *     (loc × field) が minGroupSize 未満 → 同勤務地内の小クラスタ同士を合流。
- *     合流後もまだ minGroupSize 未満 → overflow。
+ * [location ON / hobby ON]
+ *   - 絶対同じ勤務地でまとめる
+ *   - 趣味4分割→2分割→なしの順でカスケード
+ *   - なるべく違う事業部
+ *   - 同じ研修グループは極力被らせない
  *
- * Step2: クラスタ内を分割
- *   groupCount = floor(clusterSize / targetGroupSize)（最低1）
- *   残りは先頭グループに +1 ずつ配る（例: 6,6,7,7）。
- *   部署ラウンドロビン + TG制約でユーザーを割り当て。
- *
- * Step3: クラスタ内でスワップ最適化（部署多様性スコア最小化）
- *   ※クラスタをまたいだスワップは行わない（勤務地グループを維持するため）
+ * グループ数は ceil(n/target) ベースで、最低人数を保証できるまで削減。
+ * 最低人数を下回るクラスタは他の小クラスタと合流させる。
  */
 export function createGroups(
   users: UserForGrouping[],
@@ -54,15 +51,14 @@ export function createGroups(
   if (users.length === 0) return []
 
   const { useLocationGrouping = false, useHobbyGrouping = false } = options
+  // location OFF → TGは絶対被らせない / location ON → 極力被らせない
+  const strictTG = !useLocationGrouping
 
-  // Step1: クラスタ確定
   const clusters = buildClusters(users, useLocationGrouping, useHobbyGrouping, minGroupSize)
 
-  // Step2+3: クラスタごとに分割 → スワップ最適化
   const allGroups: UserForGrouping[][] = []
-
   for (const cluster of clusters) {
-    const { groups, tgCounts } = splitCluster(cluster, targetGroupSize)
+    const { groups, tgCounts } = splitCluster(cluster, targetGroupSize, minGroupSize, strictTG)
     swapOptimize(groups, tgCounts)
     allGroups.push(...groups)
   }
@@ -76,15 +72,6 @@ export function createGroups(
 
 // ── Step1: クラスタ確定 ───────────────────────────────────────────────
 
-/**
- * 勤務地・趣味の設定に応じてユーザーをクラスタに分類する。
- *
- * hobby ON の場合、各勤務地内で4段階カスケード:
- *   L1: (indoor/outdoor × solo/group) の4象限
- *   L2: (indoor/outdoor) の2分割       ← L1が minGroupSize 未満
- *   L3: 趣味の垣根を外す（勤務地のみ）  ← L2が minGroupSize 未満
- *   overflow: 勤務地ごとまとめて小さい同士でくっつける ← L3も未満
- */
 function buildClusters(
   users: UserForGrouping[],
   useLocation: boolean,
@@ -123,7 +110,7 @@ function buildClusters(
       byQuadrant.get(key)!.push(u)
     }
 
-    // L1が minGroupSize 未満 → L2（indoor/outdoor）へ集約
+    // L1が minGroupSize 未満 → L2（indoor/outdoor のみ）へ集約
     const smallForL2 = new Map<string, UserForGrouping[]>()
     for (const [qKey, qUsers] of byQuadrant) {
       if (qUsers.length >= minGroupSize) {
@@ -145,7 +132,7 @@ function buildClusters(
       }
     }
 
-    // L3が minGroupSize 未満 → overflow（小さい同士でくっつける）
+    // L3が minGroupSize 未満 → overflow
     if (smallForL3.length >= minGroupSize) {
       clusters.push(smallForL3)
     } else if (smallForL3.length > 0) {
@@ -153,7 +140,7 @@ function buildClusters(
     }
   }
 
-  // overflow: 小さいクラスタ同士を順に合流（少ない同士でくっつける）
+  // overflow: 小さいクラスタ同士を合流させてminGroupSize以上にする
   clusters.push(...pairSmallClusters(overflowClusters, minGroupSize))
 
   return clusters
@@ -161,7 +148,7 @@ function buildClusters(
 
 /**
  * 小さいクラスタ同士を小さい順に合流させ、minGroupSize 以上になったら確定。
- * 最後に残った端数は直前のクラスタに吸収。
+ * 最後の端数は直前クラスタに吸収（全員合わせてもmin未満なら1グループ）。
  */
 function pairSmallClusters(
   small: UserForGrouping[][],
@@ -185,7 +172,7 @@ function pairSmallClusters(
     if (result.length > 0) {
       result[result.length - 1].push(...current)
     } else {
-      result.push(current) // 全員合わせても minGroupSize 未満の場合
+      result.push(current) // 全員合わせてもminGroupSize未満の場合
     }
   }
 
@@ -194,23 +181,41 @@ function pairSmallClusters(
 
 // ── Step2: クラスタ内を targetGroupSize で分割 ───────────────────────
 
+/**
+ * クラスタをグループに分割する。
+ *
+ * groupCount = ceil(n / targetGroupSize) をベースに、
+ * floor(n / groupCount) >= minGroupSize になるまで減らす。
+ * これにより全グループが最低人数を確保しつつ、target人数に近いグループを作る。
+ *
+ * strictTG=true（location OFF）: 同一TGは絶対同グループに入れない。
+ *   不可能な場合はTG重複が最小になるグループへ強制配置。
+ * strictTG=false（location ON）: 極力同一TGを避けるが、サイズ優先で妥協。
+ */
 function splitCluster(
   users: UserForGrouping[],
   targetGroupSize: number,
+  minGroupSize: number,
+  strictTG: boolean,
 ): { groups: UserForGrouping[][], tgCounts: Map<string, number>[] } {
   const n = users.length
-  const groupCount = Math.max(1, Math.floor(n / targetGroupSize))
 
-  // グループサイズを均等に配分（例: 13人を2分割 → [7, 6]）
+  // ceil ベースでグループ数決定（floor より多くのグループを作ろうとする）
+  // その後、最低人数を確保できないなら1つ減らしていく
+  let groupCount = Math.max(1, Math.ceil(n / targetGroupSize))
+  while (groupCount > 1 && Math.floor(n / groupCount) < minGroupSize) {
+    groupCount--
+  }
+
+  // グループサイズを均等配分（extra個は base+1、残りはbase）
   const base = Math.floor(n / groupCount)
   const extra = n - base * groupCount
   const groupSizes = Array.from({ length: groupCount }, (_, i) => base + (i < extra ? 1 : 0))
 
   const groups: UserForGrouping[][] = Array.from({ length: groupCount }, () => [])
   const tgCounts: Map<string, number>[] = Array.from({ length: groupCount }, () => new Map())
-  const deferred: UserForGrouping[] = []
 
-  // 部署ラウンドロビン + TG制約
+  // 部署ラウンドロビン順に並べる（大きい部署から、同部署内はTGをインターリーブ）
   const shuffled = [...users]
   shuffleArray(shuffled)
 
@@ -224,43 +229,96 @@ function splitCluster(
   }
   const sortedDepts = Array.from(byDept.values()).sort((a, b) => b.length - a.length)
 
-  let cursor = 0
-  for (const deptMembers of sortedDepts) {
-    for (const user of deptMembers) {
-      const tgKey = user.training_group_id ?? '__none__'
-      let placed = false
-
-      for (let d = 0; d < groupCount; d++) {
-        const g = (cursor + d) % groupCount
-        if (groups[g].length < groupSizes[g] && !(tgCounts[g].get(tgKey) ?? 0)) {
-          groups[g].push(user)
-          tgCounts[g].set(tgKey, 1)
-          cursor = (g + 1) % groupCount
-          placed = true
-          break
-        }
-      }
-
-      if (!placed) deferred.push(user)
+  // ラウンドロビンで全ユーザーを並べる
+  const ordered: UserForGrouping[] = []
+  const maxLen = Math.max(...sortedDepts.map(d => d.length), 0)
+  for (let i = 0; i < maxLen; i++) {
+    for (const deptMembers of sortedDepts) {
+      if (i < deptMembers.length) ordered.push(deptMembers[i])
     }
   }
 
-  for (const user of deferred) {
+  // Pass 1: サイズ制約 + TG制約を両方満たすグループへ配置
+  const deferred: UserForGrouping[] = []
+  let cursor = 0
+  for (const user of ordered) {
     const tgKey = user.training_group_id ?? '__none__'
     let placed = false
-    for (let g = 0; g < groupCount; g++) {
-      if (!(tgCounts[g].get(tgKey) ?? 0)) {
+
+    for (let d = 0; d < groupCount; d++) {
+      const g = (cursor + d) % groupCount
+      if (groups[g].length < groupSizes[g] && (tgCounts[g].get(tgKey) ?? 0) === 0) {
         groups[g].push(user)
-        tgCounts[g].set(tgKey, (tgCounts[g].get(tgKey) ?? 0) + 1)
+        tgCounts[g].set(tgKey, 1)
+        cursor = (g + 1) % groupCount
         placed = true
         break
       }
     }
-    if (!placed) {
-      // TG制約を満たせない → 最小グループへ強制配置
-      const minIdx = groups.reduce((mi, g, i) => g.length < groups[mi].length ? i : mi, 0)
-      groups[minIdx].push(user)
+
+    if (!placed) deferred.push(user)
+  }
+
+  // Pass 2: サイズ制約なし、TG制約あり（部署多様性が最良のグループへ）
+  const stillDeferred: UserForGrouping[] = []
+  for (const user of deferred) {
+    const tgKey = user.training_group_id ?? '__none__'
+    let bestG = -1
+    let bestScore = Infinity
+
+    for (let g = 0; g < groupCount; g++) {
+      if ((tgCounts[g].get(tgKey) ?? 0) === 0) {
+        const score = deptScore([...groups[g], user])
+        if (score < bestScore) {
+          bestScore = score
+          bestG = g
+        }
+      }
     }
+
+    if (bestG >= 0) {
+      groups[bestG].push(user)
+      tgCounts[bestG].set(tgKey, (tgCounts[bestG].get(tgKey) ?? 0) + 1)
+    } else {
+      stillDeferred.push(user)
+    }
+  }
+
+  // Pass 3: TG制約を満たせない場合の強制配置
+  // strictTG: TG重複が最少のグループへ（次点で部署多様性）
+  // softTG:   最小サイズのグループへ（次点でTG重複が少ない方）
+  for (const user of stillDeferred) {
+    const tgKey = user.training_group_id ?? '__none__'
+    let bestG = 0
+
+    if (strictTG) {
+      let bestTGCount = Infinity
+      let bestDeptScore = Infinity
+      for (let g = 0; g < groupCount; g++) {
+        const tgCount = tgCounts[g].get(tgKey) ?? 0
+        const score = deptScore([...groups[g], user])
+        if (tgCount < bestTGCount || (tgCount === bestTGCount && score < bestDeptScore)) {
+          bestTGCount = tgCount
+          bestDeptScore = score
+          bestG = g
+        }
+      }
+    } else {
+      let bestSize = Infinity
+      let bestTGCount = Infinity
+      for (let g = 0; g < groupCount; g++) {
+        const size = groups[g].length
+        const tgCount = tgCounts[g].get(tgKey) ?? 0
+        if (size < bestSize || (size === bestSize && tgCount < bestTGCount)) {
+          bestSize = size
+          bestTGCount = tgCount
+          bestG = g
+        }
+      }
+    }
+
+    groups[bestG].push(user)
+    tgCounts[bestG].set(tgKey, (tgCounts[bestG].get(tgKey) ?? 0) + 1)
   }
 
   return { groups, tgCounts }
@@ -294,8 +352,12 @@ function swapOptimize(
             const u2 = groups[g2][j]
             const tg2 = u2.training_group_id ?? '__none__'
 
+            // 同一TGスワップはno-op
             if (tg1 === tg2) continue
+            // スワップ後にTG重複が生じないかチェック
+            // g1: tg1を出してtg2を入れる → g1にtg2が既にいたらNG
             if ((tgCounts[g1].get(tg2) ?? 0) > 0) continue
+            // g2: tg2を出してtg1を入れる → g2にtg1が既にいたらNG
             if ((tgCounts[g2].get(tg1) ?? 0) > 0) continue
 
             const before = deptScore(groups[g1]) + deptScore(groups[g2])
@@ -319,9 +381,9 @@ function swapOptimize(
           const tg2 = u2.training_group_id ?? '__none__'
           groups[g1][i] = u2
           groups[bestG2][bestJ] = u1
-          tgCounts[g1].set(tg1, tgCounts[g1].get(tg1)! - 1)
+          tgCounts[g1].set(tg1, Math.max(0, (tgCounts[g1].get(tg1) ?? 0) - 1))
           tgCounts[g1].set(tg2, (tgCounts[g1].get(tg2) ?? 0) + 1)
-          tgCounts[bestG2].set(tg2, tgCounts[bestG2].get(tg2)! - 1)
+          tgCounts[bestG2].set(tg2, Math.max(0, (tgCounts[bestG2].get(tg2) ?? 0) - 1))
           tgCounts[bestG2].set(tg1, (tgCounts[bestG2].get(tg1) ?? 0) + 1)
         }
       }
@@ -331,7 +393,7 @@ function swapOptimize(
 
 // ── ユーティリティ ─────────────────────────────────────────────────────
 
-/** TGをインターリーブして同TGが連続しないよう並べ直す */
+/** 同一TGが連続しないようインターリーブ */
 function interleaveTG(members: UserForGrouping[]): UserForGrouping[] {
   const byTG = new Map<string, UserForGrouping[]>()
   for (const u of members) {
