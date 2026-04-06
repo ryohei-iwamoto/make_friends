@@ -505,6 +505,39 @@ export default function AdminDashboard() {
         {tab === 'export' && (
           <div className="space-y-4">
             <div className="bg-gray-800 rounded-xl p-4">
+              <h2 className="font-bold mb-1">ユーザー一覧</h2>
+              <p className="text-gray-400 text-sm mb-4">登録者全員の情報をCSVでダウンロード（{data.users.length}人）</p>
+              <button
+                onClick={() => {
+                  const rows = [['名前', '社員ID', '事業部', '研修グループID', 'グループ番号', '勤務地', '趣味（屋内/屋外）', '趣味（ソロ/グループ）']]
+                  const sorted = [...data.users].sort((a, b) => a.employee_id.localeCompare(b.employee_id))
+                  for (const u of sorted) {
+                    rows.push([
+                      u.name,
+                      u.employee_id,
+                      u.departments?.name ?? '',
+                      u.training_group_id ?? '',
+                      u.group_id ? String(groupMap.get(u.group_id) ?? '') : '未割当',
+                      u.work_location ?? '',
+                      u.hobby_indoor_outdoor === 'indoor' ? '屋内' : u.hobby_indoor_outdoor === 'outdoor' ? '屋外' : '',
+                      u.hobby_solo_group === 'solo' ? 'ソロ' : u.hobby_solo_group === 'group' ? 'グループ' : '',
+                    ])
+                  }
+                  const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
+                  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = 'users.csv'; a.click()
+                  URL.revokeObjectURL(url)
+                }}
+                disabled={data.users.length === 0}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition text-sm"
+              >
+                ユーザー一覧をダウンロード
+              </button>
+            </div>
+
+            <div className="bg-gray-800 rounded-xl p-4">
               <h2 className="font-bold mb-1">グループ分け一覧</h2>
               <p className="text-gray-400 text-sm mb-4">名前・社員ID・事業部・グループ番号をCSVでダウンロード</p>
               <button
