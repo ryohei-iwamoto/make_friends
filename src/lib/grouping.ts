@@ -62,7 +62,10 @@ export function createGroups(
     allGroups.push(...groups)
   }
 
-  return allGroups.map((members, g) => ({
+  // 後処理: min未満グループ同士をくっつける（小さい同士を優先的にマージ）
+  const finalGroups = mergeSmallGroups(allGroups, minGroupSize)
+
+  return finalGroups.map((members, g) => ({
     groupNumber: g + 1,
     color: GROUP_COLORS[g % GROUP_COLORS.length],
     userIds: members.map(u => u.id),
@@ -140,18 +143,8 @@ function buildClusters(
     }
   }
 
-  // overflow: 小さいクラスタ同士を合流させてminGroupSize以上にする
-  const pairedOverflow = pairSmallClusters(overflowClusters, minGroupSize)
-  for (const c of pairedOverflow) {
-    if (c.length >= minGroupSize || clusters.length === 0) {
-      // 最低人数を満たしている、または他に吸収先がない場合はそのまま追加
-      clusters.push(c)
-    } else {
-      // まだ最低人数未満 → 最も小さい既存クラスタに吸収させる
-      const minIdx = clusters.reduce((mi, cl, i) => cl.length < clusters[mi].length ? i : mi, 0)
-      clusters[minIdx].push(...c)
-    }
-  }
+  // overflow: 同じく小さい同士でまとめる（勤務地クラスタには吸収させない）
+  clusters.push(...pairSmallClusters(overflowClusters, minGroupSize))
 
   return clusters
 }
@@ -160,6 +153,54 @@ function buildClusters(
  * 小さいクラスタ同士を小さい順に合流させ、minGroupSize 以上になったら確定。
  * 最後の端数は直前クラスタに吸収（全員合わせてもmin未満なら1グループ）。
  */
+/**
+ * 後処理: min未満のグループ同士を小さい順にくっつける。
+ * 小さい同士を優先してマージし、それでも残ったものは最小の有効グループに吸収する。
+ */
+function mergeSmallGroups(
+  allGroups: UserForGrouping[][],
+  minGroupSize: number,
+): UserForGrouping[][] {
+  const valid: UserForGrouping[][] = []
+  const small: UserForGrouping[][] = []
+
+  for (const g of allGroups) {
+    if (g.length >= minGroupSize) valid.push(g)
+    else small.push(g)
+  }
+
+  if (small.length === 0) return allGroups
+
+  // 小さい順に並べて順番にくっつけていく
+  small.sort((a, b) => a.length - b.length)
+  const merged: UserForGrouping[][] = []
+  let current: UserForGrouping[] = []
+
+  for (const g of small) {
+    current.push(...g)
+    if (current.length >= minGroupSize) {
+      merged.push(current)
+      current = []
+    }
+  }
+
+  if (current.length > 0) {
+    if (merged.length > 0) {
+      // 最も小さいマージ済みグループに吸収
+      merged.sort((a, b) => a.length - b.length)
+      merged[0].push(...current)
+    } else if (valid.length > 0) {
+      // マージ相手がいない → 最も小さい有効グループに吸収
+      valid.sort((a, b) => a.length - b.length)
+      valid[0].push(...current)
+    } else {
+      merged.push(current)
+    }
+  }
+
+  return [...valid, ...merged]
+}
+
 function pairSmallClusters(
   small: UserForGrouping[][],
   minGroupSize: number,
