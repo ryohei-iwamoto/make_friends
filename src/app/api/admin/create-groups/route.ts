@@ -9,36 +9,39 @@ export async function POST(req: NextRequest) {
   }
 
   // 既にグループ作成済みかチェック
-  const { data: setting } = await supabase
+  const { data: lockSetting } = await supabase
     .from('app_settings')
     .select('value')
     .eq('key', 'groups_locked')
     .maybeSingle() as { data: { value: string } | null }
 
-  if (setting?.value === 'true') {
+  if (lockSetting?.value === 'true') {
     return NextResponse.json({ error: '既にグループが作成されています' }, { status: 400 })
   }
 
-  // 全登録ユーザー取得
-  const body = await req.json().catch(() => ({})) as { groupSize?: number }
+  const body = await req.json().catch(() => ({})) as {
+    groupSize?: number
+    useLocationGrouping?: boolean
+    useHobbyGrouping?: boolean
+  }
   const groupSize = Math.max(2, Math.min(20, Number(body.groupSize) || 6))
+  const useLocationGrouping = body.useLocationGrouping ?? false
+  const useHobbyGrouping = body.useHobbyGrouping ?? false
 
+  // 全登録ユーザー取得（location/hobby フィールド含む）
   const { data: users, error: usersError } = await supabase
     .from('users')
-    .select('id, department_id, training_group_id')
+    .select('id, department_id, training_group_id, work_location, hobby_indoor_outdoor, hobby_solo_group')
 
   if (usersError || !users || users.length === 0) {
     return NextResponse.json({ error: '登録ユーザーがいません' }, { status: 400 })
   }
 
-  // グループ分けアルゴリズム実行
-  const assignments = createGroups(users, groupSize)
+  const assignments = createGroups(users, groupSize, { useLocationGrouping, useHobbyGrouping })
 
-  // トランザクション的に保存
   const errors: string[] = []
 
   for (const assignment of assignments) {
-    // グループ作成
     const { data: group, error: groupError } = await supabase
       .from('groups')
       .insert({ group_number: assignment.groupNumber, color: assignment.color })
@@ -50,7 +53,6 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // ユーザーにグループ割り当て
     const { error: updateError } = await supabase
       .from('users')
       .update({ group_id: group.id })
@@ -65,7 +67,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: errors.join(', ') }, { status: 500 })
   }
 
-  // ロック設定
   await supabase
     .from('app_settings')
     .upsert({ key: 'groups_locked', value: 'true' })

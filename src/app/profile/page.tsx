@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
+import { WORK_LOCATIONS } from '@/lib/locations'
 
 type Department = { id: number; name: string }
 
@@ -15,6 +16,9 @@ type User = {
   group_id: number | null
   departments: { id: number; name: string } | null
   department_id: number
+  work_location: string | null
+  hobby_indoor_outdoor: string | null
+  hobby_solo_group: string | null
 }
 
 export default function ProfilePage() {
@@ -25,16 +29,21 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [showWorkLocation, setShowWorkLocation] = useState(false)
+  const [showHobbyTendency, setShowHobbyTendency] = useState(false)
 
   useEffect(() => {
     Promise.all([
       fetch('/api/me').then(r => r.json()),
       fetch('/api/departments').then(r => r.json()),
-    ]).then(([meData, deptData]) => {
+      fetch('/api/settings').then(r => r.json()),
+    ]).then(([meData, deptData, settingsData]) => {
       if (!meData.user) { router.replace('/'); return }
       setUser(meData.user)
       setPreview(meData.user.photo_url)
       setDepartments(deptData.departments ?? [])
+      setShowWorkLocation(settingsData.showWorkLocation ?? false)
+      setShowHobbyTendency(settingsData.showHobbyTendency ?? false)
     })
   }, [router])
 
@@ -106,6 +115,70 @@ export default function ProfilePage() {
             className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
         </div>
+
+        {/* 勤務地（管理者が表示ON時のみ） */}
+        {showWorkLocation && (
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">勤務地</label>
+            <select
+              name="work_location"
+              defaultValue={user.work_location ?? ''}
+              className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-700"
+            >
+              <option value="">選択してください（任意）</option>
+              {WORK_LOCATIONS.map(loc => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* 趣味の傾向（管理者が表示ON時のみ） */}
+        {showHobbyTendency && (
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-gray-600">趣味の傾向（任意）</p>
+            <div>
+              <p className="text-xs text-gray-500 mb-2">どちらに近いですか？</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: 'indoor', label: '🏠 インドア派' },
+                  { value: 'outdoor', label: '🌿 アウトドア派' },
+                ].map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="hobby_indoor_outdoor"
+                      value={opt.value}
+                      defaultChecked={user.hobby_indoor_outdoor === opt.value}
+                      className="accent-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-2">どちらの趣味が多いですか？</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: 'solo', label: '🙋 一人でできる' },
+                  { value: 'group', label: '👥 みんなでやる' },
+                ].map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="hobby_solo_group"
+                      value={opt.value}
+                      defaultChecked={user.hobby_solo_group === opt.value}
+                      className="accent-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">自己紹介</label>

@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: '管理者権限が必要です' }, { status: 401 })
   }
 
-  const [groupsRes, photosRes, usersRes, settingRes] = await Promise.all([
+  const [groupsRes, photosRes, usersRes, settingsRes] = await Promise.all([
     supabase
       .from('groups')
       .select('id, group_number, color, created_at')
@@ -22,15 +22,23 @@ export async function GET(req: NextRequest) {
       .order('group_id'),
     supabase
       .from('app_settings')
-      .select('value')
-      .eq('key', 'groups_locked')
-      .single(),
+      .select('key, value')
+      .in('key', ['groups_locked', 'show_work_location', 'show_hobby_tendency', 'use_location_grouping', 'use_hobby_grouping']),
   ])
+
+  const settingsMap: Record<string, string> = {}
+  for (const row of settingsRes.data ?? []) settingsMap[row.key] = row.value
 
   return NextResponse.json({
     groups: groupsRes.data ?? [],
     photos: photosRes.data ?? [],
     users: usersRes.data ?? [],
-    groupsLocked: settingRes.data?.value === 'true',
+    groupsLocked: settingsMap['groups_locked'] === 'true',
+    settings: {
+      showWorkLocation:    settingsMap['show_work_location']    === 'true',
+      showHobbyTendency:  settingsMap['show_hobby_tendency']   === 'true',
+      useLocationGrouping: settingsMap['use_location_grouping'] === 'true',
+      useHobbyGrouping:   settingsMap['use_hobby_grouping']    === 'true',
+    },
   })
 }

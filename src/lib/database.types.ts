@@ -20,6 +20,9 @@ export interface Database {
           photo_url: string | null
           group_id: number | null
           created_at: string
+          work_location: string | null
+          hobby_indoor_outdoor: string | null
+          hobby_solo_group: string | null
         }
         Insert: {
           id?: string
@@ -31,6 +34,9 @@ export interface Database {
           photo_url?: string | null
           group_id?: number | null
           created_at?: string
+          work_location?: string | null
+          hobby_indoor_outdoor?: string | null
+          hobby_solo_group?: string | null
         }
         Update: {
           id?: string
@@ -42,6 +48,9 @@ export interface Database {
           photo_url?: string | null
           group_id?: number | null
           created_at?: string
+          work_location?: string | null
+          hobby_indoor_outdoor?: string | null
+          hobby_solo_group?: string | null
         }
         Relationships: []
       }

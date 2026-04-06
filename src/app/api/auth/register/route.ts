@@ -9,6 +9,9 @@ export async function POST(req: NextRequest) {
   const training_group_id = (formData.get('training_group_id') as string)?.trim() || null
   const bio = (formData.get('bio') as string)?.trim() || null
   const photo = formData.get('photo') as File | null
+  const work_location = (formData.get('work_location') as string)?.trim() || null
+  const hobby_indoor_outdoor = (formData.get('hobby_indoor_outdoor') as string) || null
+  const hobby_solo_group = (formData.get('hobby_solo_group') as string) || null
 
   if (!employee_id || !department_id || !name || !training_group_id) {
     return NextResponse.json({ error: '必須項目を入力してください' }, { status: 400 })
@@ -56,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from('users')
-    .insert({ employee_id, department_id, name, training_group_id, bio, photo_url })
+    .insert({ employee_id, department_id, name, training_group_id, bio, photo_url, work_location, hobby_indoor_outdoor, hobby_solo_group })
     .select('id, employee_id, name, group_id')
     .single()
 

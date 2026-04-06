@@ -14,12 +14,19 @@ type User = {
   group_id: number | null
   departments: { name: string } | null
 }
+type Settings = {
+  showWorkLocation: boolean
+  showHobbyTendency: boolean
+  useLocationGrouping: boolean
+  useHobbyGrouping: boolean
+}
 
 type AdminData = {
   groups: Group[]
   photos: Photo[]
   users: User[]
   groupsLocked: boolean
+  settings: Settings
 }
 
 export default function AdminDashboard() {
@@ -30,6 +37,7 @@ export default function AdminDashboard() {
   const [createError, setCreateError] = useState('')
   const [resetting, setResetting] = useState(false)
   const [groupSize, setGroupSize] = useState(6)
+  const [savingSettings, setSavingSettings] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/data')
@@ -40,6 +48,21 @@ export default function AdminDashboard() {
 
   useEffect(() => { load() }, [load])
 
+  async function handleSettingToggle(key: keyof Settings) {
+    if (!data) return
+    setSavingSettings(true)
+    const newValue = !data.settings[key]
+    const newSettings = { ...data.settings, [key]: newValue }
+    setData({ ...data, settings: newSettings })
+
+    await fetch('/api/admin/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [settingKeyMap[key]]: newValue }),
+    })
+    setSavingSettings(false)
+  }
+
   async function handleCreateGroups() {
     if (!confirm(`${data?.users.length ?? 0}人を${groupSize}人組に分けます。よろしいですか？`)) return
     setCreating(true)
@@ -47,7 +70,11 @@ export default function AdminDashboard() {
     const res = await fetch('/api/admin/create-groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupSize }),
+      body: JSON.stringify({
+        groupSize,
+        useLocationGrouping: data?.settings.useLocationGrouping ?? false,
+        useHobbyGrouping: data?.settings.useHobbyGrouping ?? false,
+      }),
     })
     const d = await res.json()
     if (!res.ok) { setCreateError(d.error); setCreating(false); return }
@@ -140,6 +167,43 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {/* フォーム・グループ分け設定 */}
+            <div className="bg-gray-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="font-bold">フォーム・グループ分け設定</h2>
+                {savingSettings && <span className="text-xs text-gray-500">保存中...</span>}
+              </div>
+              <p className="text-gray-400 text-xs mb-2">グループ作成前に設定してください</p>
+
+              <div className="space-y-1">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">フォームに表示</p>
+                <ToggleRow
+                  label="勤務地フィールドを表示"
+                  value={data.settings.showWorkLocation}
+                  onToggle={() => handleSettingToggle('showWorkLocation')}
+                />
+                <ToggleRow
+                  label="趣味傾向フィールドを表示"
+                  value={data.settings.showHobbyTendency}
+                  onToggle={() => handleSettingToggle('showHobbyTendency')}
+                />
+              </div>
+
+              <div className="space-y-1 pt-2 border-t border-gray-700">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">グループ分けに使用</p>
+                <ToggleRow
+                  label="勤務地でグループ分け（同エリアをまとめる）"
+                  value={data.settings.useLocationGrouping}
+                  onToggle={() => handleSettingToggle('useLocationGrouping')}
+                />
+                <ToggleRow
+                  label="趣味傾向でグループ分け（同象限をまとめる）"
+                  value={data.settings.useHobbyGrouping}
+                  onToggle={() => handleSettingToggle('useHobbyGrouping')}
+                />
+              </div>
+            </div>
+
             {/* グループ作成 */}
             {!data.groupsLocked ? (
               <div className="bg-gray-800 rounded-xl p-4">
@@ -156,6 +220,14 @@ export default function AdminDashboard() {
                   />
                   <span className="text-gray-400 text-sm">人</span>
                 </div>
+                {(data.settings.useLocationGrouping || data.settings.useHobbyGrouping) && (
+                  <div className="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 mb-3 text-xs text-blue-300">
+                    {[
+                      data.settings.useLocationGrouping && '勤務地エリア',
+                      data.settings.useHobbyGrouping && '趣味傾向',
+                    ].filter(Boolean).join(' + ')} でのグループ分けが有効です
+                  </div>
+                )}
                 <p className="text-gray-400 text-sm mb-4">
                   {data.users.length}人を約{groupSize}人組に分けます。
                   実行後は取り消せません。
@@ -213,32 +285,20 @@ export default function AdminDashboard() {
                     style={{ backgroundColor: group.color }}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span
-                        className="text-2xl font-black"
-                        style={{ color: textColor }}
-                      >
+                      <span className="text-2xl font-black" style={{ color: textColor }}>
                         グループ {group.group_number}
                       </span>
-                      <span
-                        className="text-sm opacity-70"
-                        style={{ color: textColor }}
-                      >
+                      <span className="text-sm opacity-70" style={{ color: textColor }}>
                         {members.length}人
                       </span>
                     </div>
                     <div className="space-y-1">
                       {members.map(m => (
                         <div key={m.id} className="flex items-center gap-2">
-                          <span
-                            className="text-sm font-medium"
-                            style={{ color: textColor }}
-                          >
+                          <span className="text-sm font-medium" style={{ color: textColor }}>
                             {m.name}
                           </span>
-                          <span
-                            className="text-xs opacity-60"
-                            style={{ color: textColor }}
-                          >
+                          <span className="text-xs opacity-60" style={{ color: textColor }}>
                             {m.departments?.name}
                           </span>
                         </div>
@@ -343,5 +403,35 @@ export default function AdminDashboard() {
         )}
       </div>
     </div>
+  )
+}
+
+const settingKeyMap: Record<keyof Settings, string> = {
+  showWorkLocation:    'show_work_location',
+  showHobbyTendency:  'show_hobby_tendency',
+  useLocationGrouping: 'use_location_grouping',
+  useHobbyGrouping:   'use_hobby_grouping',
+}
+
+function ToggleRow({
+  label,
+  value,
+  onToggle,
+}: {
+  label: string
+  value: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center justify-between py-2 px-1 hover:bg-gray-700/50 rounded-lg transition"
+    >
+      <span className="text-sm text-gray-300 text-left">{label}</span>
+      <div className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-blue-500' : 'bg-gray-600'}`}>
+        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : 'translate-x-1'}`} />
+      </div>
+    </button>
   )
 }

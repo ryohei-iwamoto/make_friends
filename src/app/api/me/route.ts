@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
     .from('users')
     .select(`
       id, employee_id, name, bio, photo_url, group_id, created_at,
+      work_location, hobby_indoor_outdoor, hobby_solo_group,
       departments(id, name),
       groups(id, group_number, color)
     `)
