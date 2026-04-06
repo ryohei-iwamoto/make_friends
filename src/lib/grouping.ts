@@ -1,5 +1,4 @@
 import { GROUP_COLORS } from './colors'
-import { getLocationRegion } from './locations'
 
 interface UserForGrouping {
   id: string
@@ -82,7 +81,8 @@ function buildClusters(
 
   const byLoc = new Map<string, UserForGrouping[]>()
   for (const u of users) {
-    const loc = useLocation ? getLocationRegion(u.work_location) : 'all'
+    // 都道府県単位でクラスタ化（リージョンにまとめない）
+    const loc = useLocation ? (u.work_location ?? 'その他') : 'all'
     if (!byLoc.has(loc)) byLoc.set(loc, [])
     byLoc.get(loc)!.push(u)
   }
@@ -141,7 +141,17 @@ function buildClusters(
   }
 
   // overflow: 小さいクラスタ同士を合流させてminGroupSize以上にする
-  clusters.push(...pairSmallClusters(overflowClusters, minGroupSize))
+  const pairedOverflow = pairSmallClusters(overflowClusters, minGroupSize)
+  for (const c of pairedOverflow) {
+    if (c.length >= minGroupSize || clusters.length === 0) {
+      // 最低人数を満たしている、または他に吸収先がない場合はそのまま追加
+      clusters.push(c)
+    } else {
+      // まだ最低人数未満 → 最も小さい既存クラスタに吸収させる
+      const minIdx = clusters.reduce((mi, cl, i) => cl.length < clusters[mi].length ? i : mi, 0)
+      clusters[minIdx].push(...c)
+    }
+  }
 
   return clusters
 }
