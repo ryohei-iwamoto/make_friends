@@ -28,6 +28,7 @@ export default function AdminDashboard() {
   const [tab, setTab] = useState<'overview' | 'groups' | 'photos'>('overview')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [resetting, setResetting] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/data')
@@ -47,6 +48,24 @@ export default function AdminDashboard() {
     if (!res.ok) { setCreateError(d.error); setCreating(false); return }
     await load()
     setCreating(false)
+  }
+
+  async function handleReset(target: 'groups' | 'all') {
+    const msg = target === 'all'
+      ? '⚠️ 全ユーザー・グループ・写真を削除します。本当によろしいですか？'
+      : 'グループと写真をリセットします（ユーザーは残ります）。よろしいですか？'
+    if (!confirm(msg)) return
+    if (target === 'all' && !confirm('本当に全データを削除しますか？この操作は取り消せません。')) return
+    setResetting(true)
+    const res = await fetch('/api/admin/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target }),
+    })
+    const d = await res.json()
+    alert(d.message ?? d.error)
+    await load()
+    setResetting(false)
   }
 
   if (!data) {
@@ -139,6 +158,25 @@ export default function AdminDashboard() {
                 <p className="text-green-600 text-sm mt-1">{data.groups.length}グループが作成されています</p>
               </div>
             )}
+
+            {/* リセット */}
+            <div className="bg-gray-800 rounded-xl p-4 space-y-3">
+              <h2 className="font-bold text-red-400">データリセット</h2>
+              <button
+                onClick={() => handleReset('groups')}
+                disabled={resetting}
+                className="w-full bg-yellow-700 text-white py-3 rounded-xl font-semibold hover:bg-yellow-600 disabled:opacity-50 transition text-sm"
+              >
+                グループ・写真のみリセット（ユーザーは残す）
+              </button>
+              <button
+                onClick={() => handleReset('all')}
+                disabled={resetting}
+                className="w-full bg-red-700 text-white py-3 rounded-xl font-semibold hover:bg-red-600 disabled:opacity-50 transition text-sm"
+              >
+                全データ削除（ユーザー含む）
+              </button>
+            </div>
           </div>
         )}
 
