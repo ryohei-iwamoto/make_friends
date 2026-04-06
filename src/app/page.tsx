@@ -61,7 +61,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Make Friends</h1>
+        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Make Connection</h1>
         <p className="text-center text-gray-500 mb-8">グループ交流イベント</p>
 
         {mode === 'select' && (
