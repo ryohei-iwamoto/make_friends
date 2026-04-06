@@ -27,6 +27,47 @@ const GOALS = [
   '新しい発見があると嬉しいです。',
 ]
 
+// 部署ごとの人数配分（合計600）
+// 偏りのある現実的な分布でグループ分けアルゴリズムをテスト
+const DEPT_DISTRIBUTION = [
+  { id: 1,  count: 85 },  // 中途採用事業本部（最大）
+  { id: 2,  count: 72 },  // エージェント第一事業本部
+  { id: 3,  count: 68 },  // エージェント第二事業本部
+  { id: 4,  count: 55 },  // IT転職支援事業本部
+  { id: 5,  count: 48 },  // レバウェルプロフェッショナルメディア事業本部
+  { id: 10, count: 45 },  // レバウェル医療テック事業本部
+  { id: 11, count: 40 },  // キャリアチケット事業本部
+  { id: 6,  count: 30 },  // デジタルイノベーション事業本部
+  { id: 19, count: 25 },  // システム本部
+  { id: 18, count: 20 },  // マーケティング部
+  { id: 7,  count: 18 },  // 採用本部
+  { id: 8,  count: 15 },  // IT新卒紹介事業本部
+  { id: 23, count: 15 },  // スタッフィング事業本部
+  { id: 15, count: 12 },  // LTコーポレート本部
+  { id: 12, count: 10 },  // LT経営推進本部
+  { id: 20, count: 10 },  // 経営企画管理本部
+  { id: 21, count:  8 },  // グローバル事業本部
+  { id: 14, count:  6 },  // 海外事業本部
+  { id: 9,  count:  5 },  // 海外紹介事業本部
+  { id: 13, count:  4 },  // HRテック事業部
+  { id: 16, count:  3 },  // M&Aアドバイザリー事業部
+  { id: 17, count:  3 },  // LT管理本部
+  { id: 22, count:  3 },  // LW管理本部
+]
+// 合計: 600人
+
+// 研修グループ: 100グループ×6人 = 600人
+// グループ番号1〜100、各グループに6人ずつ均等割り当て
+function buildTrainingGroupIds() {
+  const ids = []
+  for (let g = 1; g <= 100; g++) {
+    for (let i = 0; i < 6; i++) {
+      ids.push(String(g))
+    }
+  }
+  return ids  // 600件
+}
+
 function randomItem(arr) {
   return arr[Math.floor(Math.random() * arr.length)]
 }
@@ -37,52 +78,65 @@ function generateBio() {
   return `趣味は${hobby}です！${goal}`
 }
 
-async function main() {
-  // 部署一覧取得
-  const { data: departments } = await supabase
-    .from('departments')
-    .select('id')
-    .lte('id', 23) // 未定・その他は除く
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+}
 
+async function main() {
+  const { data: departments } = await supabase.from('departments').select('id')
   if (!departments?.length) {
     console.error('部署データがありません。schema.sqlを先に実行してください。')
     process.exit(1)
   }
 
-  const deptIds = departments.map(d => d.id)
   const TOTAL = 600
   const BATCH_SIZE = 50
 
-  console.log(`${TOTAL}人のテストデータを生成中...`)
+  // 部署IDリストを配分通りに展開してシャッフル
+  const deptIds = []
+  for (const { id, count } of DEPT_DISTRIBUTION) {
+    for (let i = 0; i < count; i++) deptIds.push(id)
+  }
+  shuffle(deptIds)
+
+  // 研修グループIDリスト（100グループ×6人）をシャッフル
+  // → 部署と研修グループの相関をなくす
+  const trainingGroupIds = buildTrainingGroupIds()
+  shuffle(trainingGroupIds)
+
+  console.log('=== テストデータ構成 ===')
+  console.log(`総人数: ${TOTAL}人`)
+  console.log(`研修グループ: 100グループ × 6人`)
+  console.log('部署分布（大→小）:')
+  for (const { id, count } of DEPT_DISTRIBUTION) {
+    const bar = '█'.repeat(Math.round(count / 5))
+    console.log(`  dept${String(id).padStart(2)}: ${String(count).padStart(3)}人 ${bar}`)
+  }
+  console.log('')
 
   const users = []
   const usedIds = new Set()
 
   for (let i = 0; i < TOTAL; i++) {
-    // 重複しない社員IDを生成
     let employeeId
     do {
       employeeId = String(10000 + Math.floor(Math.random() * 90000))
     } while (usedIds.has(employeeId))
     usedIds.add(employeeId)
 
-    const lastName = randomItem(LAST_NAMES)
-    const firstName = randomItem(FIRST_NAMES)
-    const deptId = deptIds[i % deptIds.length] // 均等に分散
-
-    // 研修グループID: 1〜100
-    const trainingGroupId = String(1 + Math.floor(Math.random() * 100))
-
     users.push({
       employee_id: employeeId,
-      department_id: deptId,
-      name: `${lastName} ${firstName}`,
-      training_group_id: trainingGroupId,
+      department_id: deptIds[i],
+      name: `${randomItem(LAST_NAMES)} ${randomItem(FIRST_NAMES)}`,
+      training_group_id: trainingGroupIds[i],
       bio: generateBio(),
     })
   }
 
-  // バッチinsert
+  console.log(`${TOTAL}人のデータを挿入中...`)
   let inserted = 0
   for (let i = 0; i < users.length; i += BATCH_SIZE) {
     const batch = users.slice(i, i + BATCH_SIZE)
@@ -96,6 +150,11 @@ async function main() {
   }
 
   console.log('\n完了！')
+  console.log('')
+  console.log('=== グループ分けテストのチェックポイント ===')
+  console.log('✓ 各グループに同じ研修グループIDが2人以上いないか')
+  console.log('✓ 同じ部署が1グループに偏っていないか（dept1=85人、dept2=72人が要注意）')
+  console.log('✓ 少数部署（3〜4人）が1グループに固まっていないか')
 }
 
 main().catch(console.error)
