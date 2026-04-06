@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   const { data: users, error: usersError } = await supabase
     .from('users')
-    .select('id, department_id')
+    .select('id, department_id, training_group_id')
 
   if (usersError || !users || users.length === 0) {
     return NextResponse.json({ error: '登録ユーザーがいません' }, { status: 400 })

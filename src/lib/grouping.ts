@@ -3,6 +3,7 @@ import { GROUP_COLORS } from './colors'
 interface UserForGrouping {
   id: string
   department_id: number
+  training_group_id: string | null
 }
 
 interface GroupAssignment {
@@ -13,37 +14,48 @@ interface GroupAssignment {
 
 /**
  * グループ分けアルゴリズム
- * - 6人1組を基本とし、余りは近隣グループに分散
- * - 同じグループに同一事業部をなるべく入れない
+ * - N人1組を基本とし、余りは先頭グループから +1 人ずつ分散
+ * - 研修グループIDが同じ人は同じグループにならないよう優先（インターリーブ）
+ * - 同一事業部もなるべく分散（研修グループ内でさらに事業部でインターリーブ）
+ * - 実行のたびにランダムが変わる（各バケット内でシャッフル）
  */
 export function createGroups(users: UserForGrouping[], baseGroupSize = 6): GroupAssignment[] {
   const totalUsers = users.length
   const groupCount = Math.floor(totalUsers / baseGroupSize)
   const remainder = totalUsers % baseGroupSize
 
-  // グループサイズ配列を計算（余りを均等分散）
+  // グループサイズ配列（余りを均等分散）
   const groupSizes: number[] = Array(groupCount).fill(baseGroupSize)
   for (let i = 0; i < remainder; i++) {
     groupSizes[i % groupCount]++
   }
 
-  // 事業部ごとにユーザーをシャッフル
-  const shuffled = shuffleArray([...users])
-
-  // 事業部でソート後に分散配置（同部署が固まらないように）
-  const byDept = new Map<number, UserForGrouping[]>()
-  for (const user of shuffled) {
-    if (!byDept.has(user.department_id)) byDept.set(user.department_id, [])
-    byDept.get(user.department_id)!.push(user)
+  // 研修グループIDでバケットに分ける
+  const byTrainingGroup = new Map<string, UserForGrouping[]>()
+  for (const user of users) {
+    const key = user.training_group_id ?? '__none__'
+    if (!byTrainingGroup.has(key)) byTrainingGroup.set(key, [])
+    byTrainingGroup.get(key)!.push(user)
   }
 
-  // インターリーブ：各事業部から1人ずつ取り出して並べる
+  // 各バケット内で事業部インターリーブ（同一事業部が固まらないように）
+  // かつバケット内はシャッフルして毎回ランダムに
+  const trainingQueues: UserForGrouping[][] = []
+  for (const members of byTrainingGroup.values()) {
+    trainingQueues.push(interdepartmentInterleave(shuffleArray([...members])))
+  }
+
+  // バケット自体もシャッフル（ランダム性を確保）
+  shuffleArray(trainingQueues)
+
+  // 研修グループIDをまたいでインターリーブ（同じ研修グループが1グループに入らないように）
   const interleaved: UserForGrouping[] = []
-  const deptQueues = Array.from(byDept.values()).sort((a, b) => b.length - a.length)
+  // 人数が多い順に並べてから交互取り出し（偏りを減らす）
+  trainingQueues.sort((a, b) => b.length - a.length)
   let hasMore = true
   while (hasMore) {
     hasMore = false
-    for (const queue of deptQueues) {
+    for (const queue of trainingQueues) {
       if (queue.length > 0) {
         interleaved.push(queue.shift()!)
         hasMore = true
@@ -66,6 +78,28 @@ export function createGroups(users: UserForGrouping[], baseGroupSize = 6): Group
   }
 
   return assignments
+}
+
+/** 事業部ごとにインターリーブして同一事業部が固まらないように並べる */
+function interdepartmentInterleave(users: UserForGrouping[]): UserForGrouping[] {
+  const byDept = new Map<number, UserForGrouping[]>()
+  for (const user of users) {
+    if (!byDept.has(user.department_id)) byDept.set(user.department_id, [])
+    byDept.get(user.department_id)!.push(user)
+  }
+  const queues = Array.from(byDept.values()).sort((a, b) => b.length - a.length)
+  const result: UserForGrouping[] = []
+  let hasMore = true
+  while (hasMore) {
+    hasMore = false
+    for (const queue of queues) {
+      if (queue.length > 0) {
+        result.push(queue.shift()!)
+        hasMore = true
+      }
+    }
+  }
+  return result
 }
 
 function shuffleArray<T>(arr: T[]): T[] {

@@ -25,7 +25,7 @@ type AdminData = {
 export default function AdminDashboard() {
   const router = useRouter()
   const [data, setData] = useState<AdminData | null>(null)
-  const [tab, setTab] = useState<'overview' | 'groups' | 'photos'>('overview')
+  const [tab, setTab] = useState<'overview' | 'groups' | 'photos' | 'export'>('overview')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [resetting, setResetting] = useState(false)
@@ -101,7 +101,7 @@ export default function AdminDashboard() {
 
       {/* タブ */}
       <div className="flex border-b border-gray-700">
-        {(['overview', 'groups', 'photos'] as const).map(t => (
+        {(['overview', 'groups', 'photos', 'export'] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -109,7 +109,7 @@ export default function AdminDashboard() {
               tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            {{ overview: '概要', groups: 'グループ', photos: '写真' }[t]}
+            {{ overview: '概要', groups: 'グループ', photos: '写真', export: 'エクスポート' }[t]}
           </button>
         ))}
       </div>
@@ -248,6 +248,72 @@ export default function AdminDashboard() {
                 )
               })
             )}
+          </div>
+        )}
+
+        {/* エクスポートタブ */}
+        {tab === 'export' && (
+          <div className="space-y-4">
+            <div className="bg-gray-800 rounded-xl p-4">
+              <h2 className="font-bold mb-1">グループ分け一覧</h2>
+              <p className="text-gray-400 text-sm mb-4">名前・社員ID・事業部・グループ番号をCSVでダウンロード</p>
+              <button
+                onClick={() => {
+                  const groupMap = new Map(data.groups.map(g => [g.id, g.group_number]))
+                  const rows = [['グループ番号', '名前', '社員ID', '事業部']]
+                  const sorted = [...data.users].sort((a, b) => {
+                    const ga = a.group_id ? (groupMap.get(a.group_id) ?? 0) : 0
+                    const gb = b.group_id ? (groupMap.get(b.group_id) ?? 0) : 0
+                    return ga - gb
+                  })
+                  for (const u of sorted) {
+                    rows.push([
+                      u.group_id ? String(groupMap.get(u.group_id) ?? '') : '未割当',
+                      u.name,
+                      u.employee_id,
+                      u.departments?.name ?? '',
+                    ])
+                  }
+                  const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
+                  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = 'groups.csv'; a.click()
+                  URL.revokeObjectURL(url)
+                }}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition text-sm"
+              >
+                グループ一覧をダウンロード
+              </button>
+            </div>
+
+            <div className="bg-gray-800 rounded-xl p-4">
+              <h2 className="font-bold mb-1">集合写真一覧</h2>
+              <p className="text-gray-400 text-sm mb-4">グループ番号・写真URLをCSVでダウンロード</p>
+              <button
+                onClick={() => {
+                  const groupMap = new Map(data.groups.map(g => [g.id, g.group_number]))
+                  const rows = [['グループ番号', '写真URL', '撮影日時']]
+                  for (const p of data.photos) {
+                    rows.push([
+                      String(groupMap.get(p.group_id) ?? p.group_id),
+                      p.photo_url,
+                      p.taken_at,
+                    ])
+                  }
+                  const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
+                  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = 'photos.csv'; a.click()
+                  URL.revokeObjectURL(url)
+                }}
+                disabled={data.photos.length === 0}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition text-sm"
+              >
+                写真一覧をダウンロード（{data.photos.length}枚）
+              </button>
+            </div>
           </div>
         )}
 
