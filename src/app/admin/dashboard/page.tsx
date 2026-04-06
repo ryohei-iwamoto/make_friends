@@ -36,7 +36,7 @@ export default function AdminDashboard() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [resetting, setResetting] = useState(false)
-  const [groupSize, setGroupSize] = useState(6)
+  const [minGroupSize, setMinGroupSize] = useState(4)
   const [savingSettings, setSavingSettings] = useState(false)
 
   const load = useCallback(async () => {
@@ -64,14 +64,14 @@ export default function AdminDashboard() {
   }
 
   async function handleCreateGroups() {
-    if (!confirm(`${data?.users.length ?? 0}人を${groupSize}人組に分けます。よろしいですか？`)) return
+    if (!confirm(`${data?.users.length ?? 0}人を最低${minGroupSize}人組に分けます。よろしいですか？`)) return
     setCreating(true)
     setCreateError('')
     const res = await fetch('/api/admin/create-groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        groupSize,
+        minGroupSize,
         useLocationGrouping: data?.settings.useLocationGrouping ?? false,
         useHobbyGrouping: data?.settings.useHobbyGrouping ?? false,
       }),
@@ -197,7 +197,7 @@ export default function AdminDashboard() {
                   onToggle={() => handleSettingToggle('useLocationGrouping')}
                 />
                 <ToggleRow
-                  label="趣味傾向でグループ分け（同象限をまとめる）"
+                  label="趣味傾向でグループ分け（同フィールドをまとめる）"
                   value={data.settings.useHobbyGrouping}
                   onToggle={() => handleSettingToggle('useHobbyGrouping')}
                 />
@@ -209,27 +209,19 @@ export default function AdminDashboard() {
               <div className="bg-gray-800 rounded-xl p-4">
                 <h2 className="font-bold mb-2">グループ作成</h2>
                 <div className="flex items-center gap-3 mb-4">
-                  <label className="text-gray-400 text-sm whitespace-nowrap">1グループの人数</label>
+                  <label className="text-gray-400 text-sm whitespace-nowrap">1グループの最低人数</label>
                   <input
                     type="number"
                     min={2}
                     max={20}
-                    value={groupSize}
-                    onChange={e => setGroupSize(Math.max(2, Math.min(20, Number(e.target.value))))}
+                    value={minGroupSize}
+                    onChange={e => setMinGroupSize(Math.max(2, Math.min(20, Number(e.target.value))))}
                     className="w-20 bg-gray-700 text-white text-center rounded-lg px-2 py-1 text-sm border border-gray-600 focus:outline-none focus:border-blue-400"
                   />
-                  <span className="text-gray-400 text-sm">人</span>
+                  <span className="text-gray-400 text-sm">人以上</span>
                 </div>
-                {(data.settings.useLocationGrouping || data.settings.useHobbyGrouping) && (
-                  <div className="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 mb-3 text-xs text-blue-300">
-                    {[
-                      data.settings.useLocationGrouping && '勤務地エリア',
-                      data.settings.useHobbyGrouping && '趣味傾向',
-                    ].filter(Boolean).join(' + ')} でのグループ分けが有効です
-                  </div>
-                )}
                 <p className="text-gray-400 text-sm mb-4">
-                  {data.users.length}人を約{groupSize}人組に分けます。
+                  {data.users.length}人を最低{minGroupSize}人組に分けます（勤務地・趣味フィールド優先）。
                   実行後は取り消せません。
                 </p>
                 {createError && <p className="text-red-400 text-sm mb-3">{createError}</p>}
@@ -408,9 +400,9 @@ export default function AdminDashboard() {
 
 const settingKeyMap: Record<keyof Settings, string> = {
   showWorkLocation:    'show_work_location',
-  showHobbyTendency:  'show_hobby_tendency',
+  showHobbyTendency:   'show_hobby_tendency',
   useLocationGrouping: 'use_location_grouping',
-  useHobbyGrouping:   'use_hobby_grouping',
+  useHobbyGrouping:    'use_hobby_grouping',
 }
 
 function ToggleRow({

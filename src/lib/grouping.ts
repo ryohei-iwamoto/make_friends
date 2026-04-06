@@ -6,8 +6,8 @@ interface UserForGrouping {
   department_id: number
   training_group_id: string | null
   work_location?: string | null
-  hobby_indoor_outdoor?: string | null  // 'indoor' | 'outdoor'
-  hobby_solo_group?: string | null      // 'solo' | 'group'
+  hobby_indoor_outdoor?: string | null
+  hobby_solo_group?: string | null
 }
 
 interface GroupAssignment {
@@ -22,172 +22,85 @@ export interface GroupingOptions {
 }
 
 /**
- * 2フェーズ グループ分けアルゴリズム
+ * グループ分けアルゴリズム
  *
- * Phase1: 初期割り当て
- *   通常モード: 部署の人数順ラウンドロビン + TG制約
- *   location/hobbyモード: (勤務地エリア × 趣味象限) でクラスタリング + TG制約
+ * [クラスタリングOFF]
+ *   部署の人数順ラウンドロビン + TG制約。グループ数は minGroupSize で均等割り。
  *
- * Phase2: スコア最適化（swap）
- *   TG制約を守りながら combinedScore が下がるスワップのみ採用
- *   - 部署多様性スコア（低いほど良い）を最小化
- *   - location/hobby有効時はクラスタリングスコアも報酬として加算
+ * [クラスタリングON（location/hobby いずれか or 両方）]
+ *   Phase1: クラスタ優先の初期割り当て
+ *     クラスタキー = (勤務地エリア × hobby_indoor_outdoor) のうち有効な軸のみ使用。
+ *     両方ONのとき: クラスタが3人以下 → 勤務地のみにマージ → それも3人以下 → 'global'
+ *     どちらか片方: クラスタが3人以下 → 'global' にマージ
+ *     クラスタ境界で人数 ≥ minGroupSize になったらグループ確定（足りなければ次クラスタと合流）。
+ *     TG制約（同研修グループは同グループ不可）はハード制約。
+ *
+ *   Phase2: 部署多様性スコアを最小化するスワップ最適化（10パス）
+ *     TG制約を守りながらスコアが下がるスワップのみ採用。
  */
 export function createGroups(
   users: UserForGrouping[],
-  baseGroupSize = 6,
+  minGroupSize = 4,
   options: GroupingOptions = {},
 ): GroupAssignment[] {
+  if (users.length === 0) return []
+
   const { useLocationGrouping = false, useHobbyGrouping = false } = options
 
-  const totalUsers = users.length
-  const groupCount = Math.floor(totalUsers / baseGroupSize)
-  const remainder = totalUsers % baseGroupSize
-
-  const groupSizes: number[] = Array(groupCount).fill(baseGroupSize)
-  for (let i = 0; i < remainder; i++) {
-    groupSizes[i % groupCount]++
+  if (!useLocationGrouping && !useHobbyGrouping) {
+    return createGroupsByDept(users, minGroupSize)
   }
+
+  return createGroupsByCluster(users, minGroupSize, useLocationGrouping, useHobbyGrouping)
+}
+
+// ── 非クラスタリングモード: 部署の人数順ラウンドロビン ──────────────
+
+function createGroupsByDept(users: UserForGrouping[], minGroupSize: number): GroupAssignment[] {
+  const totalUsers = users.length
+  const groupCount = Math.max(1, Math.floor(totalUsers / minGroupSize))
+  const remainder = totalUsers % minGroupSize
+
+  const groupSizes: number[] = Array(groupCount).fill(minGroupSize)
+  for (let i = 0; i < remainder; i++) groupSizes[i % groupCount]++
 
   const groups: UserForGrouping[][] = Array.from({ length: groupCount }, () => [])
   const tgCountInGroup: Map<string, number>[] = Array.from({ length: groupCount }, () => new Map())
   const deferred: UserForGrouping[] = []
 
-  if (useLocationGrouping || useHobbyGrouping) {
-    // ── Phase 1 (クラスタリングモード): location × hobby バケットごとに同じグループへ ──
+  const byDept = new Map<number, UserForGrouping[]>()
+  for (const u of users) {
+    if (!byDept.has(u.department_id)) byDept.set(u.department_id, [])
+    byDept.get(u.department_id)!.push(u)
+  }
+  for (const [deptId, members] of byDept) {
+    shuffleArray(members)
+    byDept.set(deptId, interleaveTG(members))
+  }
 
-    // バケット作成
-    const bucketMap = new Map<string, UserForGrouping[]>()
-    for (const u of users) {
-      const locKey = useLocationGrouping ? getLocationRegion(u.work_location) : 'all'
-      const hobbyKey = useHobbyGrouping ? getHobbyQuadrant(u) : 'all'
-      const key = `${locKey}|${hobbyKey}`
-      if (!bucketMap.has(key)) bucketMap.set(key, [])
-      bucketMap.get(key)!.push(u)
-    }
+  const sortedDepts = Array.from(byDept.values()).sort((a, b) => b.length - a.length)
 
-    // バケット内でTGがバラけるよう並べ直す
-    for (const [key, members] of bucketMap) {
-      shuffleArray(members)
-      const byTG = new Map<string, UserForGrouping[]>()
-      for (const u of members) {
-        const tgKey = u.training_group_id ?? '__none__'
-        if (!byTG.has(tgKey)) byTG.set(tgKey, [])
-        byTG.get(tgKey)!.push(u)
-      }
-      const tgGroups = Array.from(byTG.values())
-      const reordered: UserForGrouping[] = []
-      const maxLen = Math.max(...tgGroups.map(g => g.length))
-      for (let i = 0; i < maxLen; i++) {
-        for (const tgMembers of tgGroups) {
-          if (i < tgMembers.length) reordered.push(tgMembers[i])
-        }
-      }
-      bucketMap.set(key, reordered)
-    }
+  let cursor = 0
+  for (const deptMembers of sortedDepts) {
+    for (const user of deptMembers) {
+      const tgKey = user.training_group_id ?? '__none__'
+      let placed = false
 
-    // 大きいバケットから順に処理
-    const sortedBuckets = Array.from(bucketMap.values()).sort((a, b) => b.length - a.length)
-
-    // 各バケットを同じグループへ詰める。グループが満員になったら次へ
-    let fillIdx = 0
-    const advanceFill = () => {
-      do { fillIdx = (fillIdx + 1) % groupCount }
-      while (groups[fillIdx].length >= groupSizes[fillIdx])
-    }
-
-    for (const bucket of sortedBuckets) {
-      for (const user of bucket) {
-        const tgKey = user.training_group_id ?? '__none__'
-        let placed = false
-
-        // まず現在の fillIdx グループへ（クラスタリング優先）
-        if (
-          groups[fillIdx].length < groupSizes[fillIdx] &&
-          !(tgCountInGroup[fillIdx].get(tgKey) ?? 0)
-        ) {
-          groups[fillIdx].push(user)
-          tgCountInGroup[fillIdx].set(tgKey, 1)
+      for (let d = 0; d < groupCount; d++) {
+        const g = (cursor + d) % groupCount
+        if (groups[g].length < groupSizes[g] && !(tgCountInGroup[g].get(tgKey) ?? 0)) {
+          groups[g].push(user)
+          tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
+          cursor = (g + 1) % groupCount
           placed = true
-        }
-
-        if (!placed) {
-          // TG制約で入れない → 他のグループを探す
-          for (let d = 1; d < groupCount; d++) {
-            const g = (fillIdx + d) % groupCount
-            if (groups[g].length < groupSizes[g] && !(tgCountInGroup[g].get(tgKey) ?? 0)) {
-              groups[g].push(user)
-              tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
-              placed = true
-              break
-            }
-          }
-        }
-
-        if (!placed) deferred.push(user)
-
-        // fillIdx が満員になったら次へ
-        if (groups[fillIdx].length >= groupSizes[fillIdx]) {
-          advanceFill()
+          break
         }
       }
 
-      // バケット処理完了 → 次のバケットは新しいグループから開始
-      if (groups[fillIdx].length > 0) advanceFill()
-    }
-  } else {
-    // ── Phase 1 (通常モード): 部署の人数順ラウンドロビン ──────────────────────
-
-    const byDept = new Map<number, UserForGrouping[]>()
-    for (const u of users) {
-      if (!byDept.has(u.department_id)) byDept.set(u.department_id, [])
-      byDept.get(u.department_id)!.push(u)
-    }
-    for (const [deptId, members] of byDept) {
-      shuffleArray(members)
-      // 部署内でTGがバラけるよう並べ直す
-      const byTG = new Map<string, UserForGrouping[]>()
-      for (const u of members) {
-        const key = u.training_group_id ?? '__none__'
-        if (!byTG.has(key)) byTG.set(key, [])
-        byTG.get(key)!.push(u)
-      }
-      const tgGroups = Array.from(byTG.values())
-      const reordered: UserForGrouping[] = []
-      const maxTGLen = Math.max(...tgGroups.map(g => g.length))
-      for (let i = 0; i < maxTGLen; i++) {
-        for (const tgMembers of tgGroups) {
-          if (i < tgMembers.length) reordered.push(tgMembers[i])
-        }
-      }
-      byDept.set(deptId, reordered)
-    }
-
-    const sortedDepts = Array.from(byDept.values()).sort((a, b) => b.length - a.length)
-
-    let cursor = 0
-    for (const deptMembers of sortedDepts) {
-      for (const user of deptMembers) {
-        const tgKey = user.training_group_id ?? '__none__'
-        let placed = false
-
-        for (let d = 0; d < groupCount; d++) {
-          const g = (cursor + d) % groupCount
-          if (groups[g].length < groupSizes[g] && !(tgCountInGroup[g].get(tgKey) ?? 0)) {
-            groups[g].push(user)
-            tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
-            cursor = (g + 1) % groupCount
-            placed = true
-            break
-          }
-        }
-
-        if (!placed) deferred.push(user)
-      }
+      if (!placed) deferred.push(user)
     }
   }
 
-  // 後回しユーザーをTG制約を守りながら残りスペースに配置
   for (const user of deferred) {
     const tgKey = user.training_group_id ?? '__none__'
     for (let g = 0; g < groupCount; g++) {
@@ -199,7 +112,147 @@ export function createGroups(
     }
   }
 
-  // ── Phase 2: combinedScore を最小化するスワップ（10パス）─────────────────────
+  return applySwapOptimization(groups, tgCountInGroup)
+}
+
+// ── クラスタリングモード ──────────────────────────────────────────────
+
+function createGroupsByCluster(
+  users: UserForGrouping[],
+  minGroupSize: number,
+  useLocation: boolean,
+  useHobby: boolean,
+): GroupAssignment[] {
+  // クラスタキーのカウント（フォールバック判定用）
+  const primaryCount = new Map<string, number>()
+  const locationCount = new Map<string, number>()
+
+  for (const u of users) {
+    const loc = useLocation ? getLocationRegion(u.work_location) : 'all'
+    const field = useHobby ? (u.hobby_indoor_outdoor ?? 'unknown') : 'all'
+    const pk = `${loc}|${field}`
+    primaryCount.set(pk, (primaryCount.get(pk) ?? 0) + 1)
+    if (useLocation) locationCount.set(loc, (locationCount.get(loc) ?? 0) + 1)
+  }
+
+  const getClusterKey = (u: UserForGrouping): string => {
+    const loc = useLocation ? getLocationRegion(u.work_location) : 'all'
+    const field = useHobby ? (u.hobby_indoor_outdoor ?? 'unknown') : 'all'
+    const pk = `${loc}|${field}`
+
+    if (useLocation && useHobby) {
+      // 両方ON: primary → location-only → global
+      if ((primaryCount.get(pk) ?? 0) > 3) return pk
+      if ((locationCount.get(loc) ?? 0) > 3) return `${loc}|any`
+      return 'global'
+    }
+
+    // 片方のみ: primary → global
+    if ((primaryCount.get(pk) ?? 0) > 3) return pk
+    return 'global'
+  }
+
+  // バケット作成
+  const bucketMap = new Map<string, UserForGrouping[]>()
+  for (const u of users) {
+    const key = getClusterKey(u)
+    if (!bucketMap.has(key)) bucketMap.set(key, [])
+    bucketMap.get(key)!.push(u)
+  }
+
+  // バケット内でTGをインターリーブ
+  for (const [bKey, members] of bucketMap) {
+    shuffleArray(members)
+    bucketMap.set(bKey, interleaveTG(members))
+  }
+
+  // 大きいバケットから処理
+  const sortedBuckets = Array.from(bucketMap.values()).sort((a, b) => b.length - a.length)
+
+  const groups: UserForGrouping[][] = [[]]
+  const tgCountInGroup: Map<string, number>[] = [new Map()]
+  const deferred: UserForGrouping[] = []
+
+  for (const bucket of sortedBuckets) {
+    const currentIdx = groups.length - 1
+
+    for (const user of bucket) {
+      const tgKey = user.training_group_id ?? '__none__'
+      let placed = false
+
+      if (!(tgCountInGroup[currentIdx].get(tgKey) ?? 0)) {
+        groups[currentIdx].push(user)
+        tgCountInGroup[currentIdx].set(tgKey, 1)
+        placed = true
+      }
+
+      if (!placed) {
+        for (let g = 0; g < currentIdx; g++) {
+          if (!(tgCountInGroup[g].get(tgKey) ?? 0)) {
+            groups[g].push(user)
+            tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
+            placed = true
+            break
+          }
+        }
+      }
+
+      if (!placed) deferred.push(user)
+    }
+
+    // バケット完了: minGroupSize 以上ならシール
+    if (groups[groups.length - 1].length >= minGroupSize) {
+      groups.push([])
+      tgCountInGroup.push(new Map())
+    }
+  }
+
+  // 後回しユーザー配置
+  for (const user of deferred) {
+    const tgKey = user.training_group_id ?? '__none__'
+    let placed = false
+    for (let g = 0; g < groups.length; g++) {
+      if (!(tgCountInGroup[g].get(tgKey) ?? 0)) {
+        groups[g].push(user)
+        tgCountInGroup[g].set(tgKey, (tgCountInGroup[g].get(tgKey) ?? 0) + 1)
+        placed = true
+        break
+      }
+    }
+    if (!placed) {
+      const minIdx = groups.reduce((mi, g, i) => g.length < groups[mi].length ? i : mi, 0)
+      groups[minIdx].push(user)
+    }
+  }
+
+  // 末尾の空グループを削除
+  if (groups[groups.length - 1].length === 0) {
+    groups.pop()
+    tgCountInGroup.pop()
+  }
+
+  // 末尾グループが minGroupSize 未満なら前のグループに合流
+  if (groups.length > 1 && groups[groups.length - 1].length < minGroupSize) {
+    const last = groups.pop()!
+    tgCountInGroup.pop()
+    const targetIdx = groups.length - 1
+    for (const u of last) {
+      groups[targetIdx].push(u)
+      const tgKey = u.training_group_id ?? '__none__'
+      tgCountInGroup[targetIdx].set(tgKey, (tgCountInGroup[targetIdx].get(tgKey) ?? 0) + 1)
+    }
+  }
+
+  return applySwapOptimization(groups, tgCountInGroup)
+}
+
+// ── Phase 2: 部署多様性スコアを最小化するスワップ最適化 ──────────────
+
+function applySwapOptimization(
+  groups: UserForGrouping[][],
+  tgCountInGroup: Map<string, number>[],
+): GroupAssignment[] {
+  const groupCount = groups.length
 
   for (let pass = 0; pass < 10; pass++) {
     const gOrder = Array.from({ length: groupCount }, (_, i) => i)
@@ -224,14 +277,10 @@ export function createGroups(
             if ((tgCountInGroup[g1].get(tg2) ?? 0) > 0) continue
             if ((tgCountInGroup[g2].get(tg1) ?? 0) > 0) continue
 
-            const scoreBefore =
-              combinedScore(groups[g1], useLocationGrouping, useHobbyGrouping) +
-              combinedScore(groups[g2], useLocationGrouping, useHobbyGrouping)
+            const scoreBefore = deptScore(groups[g1]) + deptScore(groups[g2])
             groups[g1][i] = u2
             groups[g2][j] = u1
-            const scoreAfter =
-              combinedScore(groups[g1], useLocationGrouping, useHobbyGrouping) +
-              combinedScore(groups[g2], useLocationGrouping, useHobbyGrouping)
+            const scoreAfter = deptScore(groups[g1]) + deptScore(groups[g2])
             groups[g1][i] = u1
             groups[g2][j] = u2
 
@@ -265,58 +314,31 @@ export function createGroups(
   }))
 }
 
-/** 趣味象限キー: 'indoor_solo' | 'indoor_group' | 'outdoor_solo' | 'outdoor_group' */
-function getHobbyQuadrant(user: UserForGrouping): string {
-  const io = user.hobby_indoor_outdoor ?? 'unknown'
-  const sg = user.hobby_solo_group ?? 'unknown'
-  return `${io}_${sg}`
-}
+// ── ユーティリティ ─────────────────────────────────────────────────────
 
-/**
- * グループの総合スコア（低いほど良い）
- * - 部署多様性: deptScore（低 = 多様）
- * - location有効時: locationClusterScore を引く（高 = 同勤務地クラスタ = 良）
- * - hobby有効時: hobbyClusterScore を引く（高 = 同趣味象限クラスタ = 良）
- */
-function combinedScore(
-  members: UserForGrouping[],
-  useLocation: boolean,
-  useHobby: boolean,
-): number {
-  let score = deptScore(members)
-  if (useLocation) score -= locationClusterScore(members)
-  if (useHobby) score -= hobbyClusterScore(members)
-  return score
+/** TGをインターリーブして同TGが連続しないよう並べ直す */
+function interleaveTG(members: UserForGrouping[]): UserForGrouping[] {
+  const byTG = new Map<string, UserForGrouping[]>()
+  for (const u of members) {
+    const key = u.training_group_id ?? '__none__'
+    if (!byTG.has(key)) byTG.set(key, [])
+    byTG.get(key)!.push(u)
+  }
+  const tgGroups = Array.from(byTG.values())
+  const result: UserForGrouping[] = []
+  const maxLen = Math.max(...tgGroups.map(g => g.length))
+  for (let i = 0; i < maxLen; i++) {
+    for (const tgMembers of tgGroups) {
+      if (i < tgMembers.length) result.push(tgMembers[i])
+    }
+  }
+  return result
 }
 
 /** 部署多様性スコア（低いほど多様） = 同一部署人数の二乗和 */
 function deptScore(members: UserForGrouping[]): number {
   const counts = new Map<number, number>()
   for (const m of members) counts.set(m.department_id, (counts.get(m.department_id) ?? 0) + 1)
-  let score = 0
-  for (const c of counts.values()) score += c * c
-  return score
-}
-
-/** 勤務地クラスタリングスコア（高いほど同勤務地が集まっている） = 同一エリア人数の二乗和 */
-function locationClusterScore(members: UserForGrouping[]): number {
-  const counts = new Map<string, number>()
-  for (const m of members) {
-    const region = getLocationRegion(m.work_location)
-    counts.set(region, (counts.get(region) ?? 0) + 1)
-  }
-  let score = 0
-  for (const c of counts.values()) score += c * c
-  return score
-}
-
-/** 趣味象限クラスタリングスコア（高いほど同象限が集まっている） = 同一象限人数の二乗和 */
-function hobbyClusterScore(members: UserForGrouping[]): number {
-  const counts = new Map<string, number>()
-  for (const m of members) {
-    const q = getHobbyQuadrant(m)
-    counts.set(q, (counts.get(q) ?? 0) + 1)
-  }
   let score = 0
   for (const c of counts.values()) score += c * c
   return score
