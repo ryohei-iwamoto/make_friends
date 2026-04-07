@@ -84,9 +84,8 @@ export default function HomePage() {
                 name="employee_id"
                 placeholder="社員ID"
                 required
-                inputMode="numeric"
-                pattern="[0-9]*"
-                onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, '') }}
+                pattern="[A-Za-z0-9]*"
+                onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^A-Za-z0-9]/g, '') }}
                 className="w-full border border-gray-200 rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
               {error && <p className="text-red-500 text-sm">{error}</p>}
@@ -114,14 +113,13 @@ export default function HomePage() {
                 </label>
                 <input
                   name="employee_id"
-                  placeholder="例：12345"
+                  placeholder="例：A12345"
                   required
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, '') }}
+                  pattern="[A-Za-z0-9]*"
+                  onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^A-Za-z0-9]/g, '') }}
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
-                <p className="text-xs text-gray-400 mt-1">社員証に書かれている数字を入力してください</p>
+                <p className="text-xs text-gray-400 mt-1">社員証に書かれているIDを入力してください</p>
               </div>
 
               <div>
