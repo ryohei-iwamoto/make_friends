@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
   }
 
   const res = NextResponse.json({ user: data })
-  res.cookies.set('user_id', data.id, { httpOnly: true, path: '/', maxAge: 60 * 60 * 12 })
-  res.cookies.set('employee_id', data.employee_id, { path: '/', maxAge: 60 * 60 * 12 })
+  res.cookies.set('user_id', data.id, { httpOnly: true, path: '/', maxAge: 60 * 60 * 72 })
+  res.cookies.set('employee_id', data.employee_id, { path: '/', maxAge: 60 * 60 * 72 })
   return res
 }
