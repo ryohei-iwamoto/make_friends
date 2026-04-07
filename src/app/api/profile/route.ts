@@ -9,10 +9,15 @@ export async function PUT(req: NextRequest) {
   const name = (formData.get('name') as string)?.trim()
   const bio = (formData.get('bio') as string)?.trim() || null
   const photo = formData.get('photo') as File | null
+  const work_location = (formData.get('work_location') as string)?.trim() || null
+  const hobby_indoor_outdoor = (formData.get('hobby_indoor_outdoor') as string) || null
+  const hobby_solo_group = (formData.get('hobby_solo_group') as string) || null
 
-  if (!name) return NextResponse.json({ error: '名前は必須です' }, { status: 400 })
+  if (!name || !work_location || !hobby_indoor_outdoor || !hobby_solo_group) {
+    return NextResponse.json({ error: '必須項目を入力してください' }, { status: 400 })
+  }
 
-  const updates: Record<string, unknown> = { name, bio }
+  const updates: Record<string, unknown> = { name, bio, work_location, hobby_indoor_outdoor, hobby_solo_group }
 
   if (photo && photo.size > 0) {
     const { data: userData } = await supabase

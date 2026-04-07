@@ -14,9 +14,12 @@ type User = {
   groups: { id: number; group_number: number; color: string } | null
 }
 
+type GroupInfo = { group_number: number; color: string }
+
 export default function MyPage() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
+  const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
 
@@ -24,22 +27,27 @@ export default function MyPage() {
     fetch('/api/me').then(r => r.json()).then(({ user }) => {
       if (!user) { router.replace('/'); return }
       setUser(user)
+      if (user.groups) setGroupInfo(user.groups)
       setLoading(false)
     })
   }, [router])
 
-  // グループ確定後はポーリングで更新
+  // グループ未確定：軽量エンドポイントをポーリング（Vercel Edge でキャッシュされるため DB 負荷ほぼゼロ）
   useEffect(() => {
-    if (!user || user.group_id) return
+    if (!user || groupInfo) return
     const interval = setInterval(async () => {
-      const { user: updated } = await fetch('/api/me').then(r => r.json())
-      if (updated?.group_id) {
-        setUser(updated)
+      const { locked } = await fetch('/api/groups-status').then(r => r.json())
+      if (!locked) return
+      // グループ確定 → 全員分の lookup（1時間キャッシュ）から自分のグループを取得
+      const { lookup } = await fetch('/api/group-lookup').then(r => r.json())
+      const info = lookup?.[user.employee_id]
+      if (info) {
+        setGroupInfo(info)
         clearInterval(interval)
       }
     }, 5000)
     return () => clearInterval(interval)
-  }, [user])
+  }, [user, groupInfo])
 
   async function handleCancel() {
     if (!confirm('参加をキャンセルしますか？')) return
@@ -59,8 +67,8 @@ export default function MyPage() {
   if (!user) return null
 
   // グループ確定後：全画面カラー表示
-  if (user.groups) {
-    const bg = user.groups.color
+  if (groupInfo) {
+    const bg = groupInfo.color
     const textColor = getTextColor(bg)
     return (
       <div
@@ -71,7 +79,7 @@ export default function MyPage() {
         <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
           <p className="text-xl font-medium opacity-80 mb-2">あなたのグループ</p>
           <div className="text-[8rem] font-black leading-none" style={{ color: textColor }}>
-            {user.groups.group_number}
+            {groupInfo.group_number}
           </div>
           <p className="text-2xl font-semibold mt-4 opacity-90">{user.name}</p>
           <p className="text-base opacity-70 mt-1">{user.departments?.name}</p>

@@ -98,6 +98,21 @@ CREATE POLICY "users_update" ON users FOR UPDATE USING (true);
 CREATE POLICY "group_photos_insert" ON group_photos FOR INSERT WITH CHECK (true);
 
 -- =============================
+-- 勤務地・趣味フィールド（グループ分け用）
+-- =============================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS work_location TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hobby_indoor_outdoor TEXT CHECK (hobby_indoor_outdoor IN ('indoor', 'outdoor'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hobby_solo_group TEXT CHECK (hobby_solo_group IN ('solo', 'group'));
+
+-- フォーム表示・グループ分けロジック設定
+INSERT INTO app_settings (key, value) VALUES
+  ('show_work_location',    'false'),
+  ('show_hobby_tendency',   'false'),
+  ('use_location_grouping', 'false'),
+  ('use_hobby_grouping',    'false')
+ON CONFLICT DO NOTHING;
+
+-- =============================
 -- Storage バケット
 -- =============================
 -- Supabase管理画面で以下のバケットを作成してください:

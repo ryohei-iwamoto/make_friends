@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { WORK_LOCATIONS } from '@/lib/locations'
 
 type Department = { id: number; name: string }
 
@@ -11,8 +12,6 @@ export default function HomePage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  // 既にログイン済みならマイページへ
   useEffect(() => {
     fetch('/api/me').then(r => r.json()).then(({ user }) => {
       if (user) router.replace('/mypage')
@@ -20,8 +19,8 @@ export default function HomePage() {
   }, [router])
 
   useEffect(() => {
-    fetch('/api/departments').then(r => r.json()).then(({ departments }) => {
-      setDepartments(departments ?? [])
+    fetch('/api/departments').then(r => r.json()).then(deptData => {
+      setDepartments(deptData.departments ?? [])
     })
   }, [])
 
@@ -54,7 +53,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Make Friends</h1>
+        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Make Connection</h1>
         <p className="text-center text-gray-500 mb-8">グループ交流イベント</p>
 
         {mode === 'select' && (
@@ -87,10 +86,7 @@ export default function HomePage() {
                 required
                 inputMode="numeric"
                 pattern="[0-9]*"
-                onInput={e => {
-                  const el = e.currentTarget
-                  el.value = el.value.replace(/[^0-9]/g, '')
-                }}
+                onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, '') }}
                 className="w-full border border-gray-200 rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
               {error && <p className="text-red-500 text-sm">{error}</p>}
@@ -122,14 +118,12 @@ export default function HomePage() {
                   required
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  onInput={e => {
-                    const el = e.currentTarget
-                    el.value = el.value.replace(/[^0-9]/g, '')
-                  }}
+                  onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, '') }}
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
                 <p className="text-xs text-gray-400 mt-1">社員証に書かれている数字を入力してください</p>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">
                   部署 <span className="text-red-500">*</span>
@@ -146,6 +140,7 @@ export default function HomePage() {
                   ))}
                 </select>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">
                   氏名 <span className="text-red-500">*</span>
@@ -157,6 +152,7 @@ export default function HomePage() {
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">
                   研修中グループID <span className="text-red-500">*</span>
@@ -167,14 +163,63 @@ export default function HomePage() {
                   required
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  onInput={e => {
-                    const el = e.currentTarget
-                    el.value = el.value.replace(/[^0-9]/g, '')
-                  }}
+                  onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, '') }}
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
                 <p className="text-xs text-gray-400 mt-1">「A」等のアルファベットは省き、後ろの数字のみ半角で入力してください（例：92）</p>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  勤務地 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="work_location"
+                  required
+                  defaultValue=""
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-700"
+                >
+                  <option value="" disabled>選択してください</option>
+                  {WORK_LOCATIONS.map(loc => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-gray-600">
+                  趣味の傾向 <span className="text-red-500">*</span>
+                </p>
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">どちらに近いですか？</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'indoor', label: '🏠 インドア派' },
+                      { value: 'outdoor', label: '🌿 アウトドア派' },
+                    ].map(opt => (
+                      <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
+                        <input type="radio" name="hobby_indoor_outdoor" value={opt.value} required className="accent-blue-500" />
+                        <span className="text-sm text-gray-700">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">どちらの趣味が多いですか？</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'solo', label: '🙋 一人でできる' },
+                      { value: 'group', label: '👥 みんなでやる' },
+                    ].map(opt => (
+                      <label key={opt.value} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50">
+                        <input type="radio" name="hobby_solo_group" value={opt.value} required className="accent-blue-500" />
+                        <span className="text-sm text-gray-700">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">自己紹介</label>
                 <textarea
@@ -185,6 +230,7 @@ export default function HomePage() {
                 />
                 <p className="text-xs text-gray-400 mt-1">【趣味】と【意気込み】を含めて200文字程度で書いてください</p>
               </div>
+
               <div>
                 <label className="block text-sm text-gray-500 mb-1">プロフィール写真（任意）</label>
                 <input
@@ -195,6 +241,7 @@ export default function HomePage() {
                   className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
               </div>
+
               {error && <p className="text-red-500 text-sm">{error}</p>}
               <button
                 type="submit"
