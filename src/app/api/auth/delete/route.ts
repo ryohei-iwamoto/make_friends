@@ -16,7 +16,10 @@ export async function POST(req: NextRequest) {
   if (user.group_id) return NextResponse.json({ error: 'グループ確定後は削除できません' }, { status: 403 })
 
   const { error } = await supabase.from('users').delete().eq('id', userId)
-  if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 })
+  if (error) {
+    console.error('DB delete error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   const res = NextResponse.json({ ok: true })
   res.cookies.delete('user_id')
