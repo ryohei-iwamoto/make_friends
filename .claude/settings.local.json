@@ -4,7 +4,8 @@
       "Bash(k6 version:*)",
       "Bash(autocannon --version)",
       "Bash(npm start:*)",
-      "Bash(node load-test.mjs)"
+      "Bash(node load-test.mjs)",
+      "Bash(git merge:*)"
     ],
     "additionalDirectories": [
       "D:\\D_Playprograming\\make_friends\\src\\app\\api\\admin\\users"
