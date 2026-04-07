@@ -86,7 +86,7 @@ export default function HomePage() {
                 required
                 pattern="[A-Za-z0-9]*"
                 onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^A-Za-z0-9]/g, '') }}
-                className="w-full border border-gray-200 rounded-lg px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full border border-gray-200 rounded-lg px-4 py-3 text-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
               {error && <p className="text-red-500 text-sm">{error}</p>}
               <button
@@ -117,7 +117,7 @@ export default function HomePage() {
                   required
                   pattern="[A-Za-z0-9]*"
                   onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^A-Za-z0-9]/g, '') }}
-                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
                 <p className="text-xs text-gray-400 mt-1">社員証に書かれているIDを入力してください</p>
               </div>
@@ -147,7 +147,7 @@ export default function HomePage() {
                   name="name"
                   placeholder="例：山田 太郎"
                   required
-                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
 
@@ -162,7 +162,7 @@ export default function HomePage() {
                   inputMode="numeric"
                   pattern="[0-9]*"
                   onInput={e => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, '') }}
-                  className="w-full border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
                 <p className="text-xs text-gray-400 mt-1">「A」等のアルファベットは省き、後ろの数字のみ半角で入力してください（例：92）</p>
               </div>
@@ -224,7 +224,7 @@ export default function HomePage() {
                   name="bio"
                   placeholder={"例）趣味はサウナ巡りです！新しく組むグループでは、自分から積極的にコミュニケーションを取り、全員が発言しやすい雰囲気作りを頑張ります。よろしくお願いします！"}
                   rows={5}
-                  className="w-full border border-gray-200 rounded-lg px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-3 resize-none text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
                 />
                 <p className="text-xs text-gray-400 mt-1">【趣味】と【意気込み】を含めて200文字程度で書いてください</p>
               </div>
