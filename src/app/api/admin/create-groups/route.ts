@@ -24,11 +24,13 @@ export async function POST(req: NextRequest) {
     minGroupSize?: number
     useLocationGrouping?: boolean
     useHobbyGrouping?: boolean
+    useLocationDiversify?: boolean
   }
   const targetGroupSize = Math.max(2, Math.min(50, Number(body.targetGroupSize) || 6))
   const minGroupSize = Math.max(2, Math.min(targetGroupSize, Number(body.minGroupSize) || 4))
   const useLocationGrouping = body.useLocationGrouping ?? false
   const useHobbyGrouping = body.useHobbyGrouping ?? false
+  const useLocationDiversify = body.useLocationDiversify ?? false
 
   // 全登録ユーザー取得
   const { data: users, error: usersError } = await supabase
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '登録ユーザーがいません' }, { status: 400 })
   }
 
-  const assignments = createGroups(users, targetGroupSize, minGroupSize, { useLocationGrouping, useHobbyGrouping })
+  const assignments = createGroups(users, targetGroupSize, minGroupSize, { useLocationGrouping, useHobbyGrouping, useLocationDiversify })
 
   const errors: string[] = []
 

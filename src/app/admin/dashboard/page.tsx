@@ -25,6 +25,7 @@ type Settings = {
   showHobbyTendency: boolean
   useLocationGrouping: boolean
   useHobbyGrouping: boolean
+  useLocationDiversify: boolean
 }
 
 type AdminData = {
@@ -101,6 +102,7 @@ export default function AdminDashboard() {
         minGroupSize,
         useLocationGrouping: data?.settings.useLocationGrouping ?? false,
         useHobbyGrouping: data?.settings.useHobbyGrouping ?? false,
+        useLocationDiversify: data?.settings.useLocationDiversify ?? false,
       }),
     })
     const d = await res.json()
@@ -287,6 +289,11 @@ export default function AdminDashboard() {
                   label="勤務地でグループ分け（同エリアをまとめる）"
                   value={data.settings.useLocationGrouping}
                   onToggle={() => handleSettingToggle('useLocationGrouping')}
+                />
+                <ToggleRow
+                  label="勤務地をなるべく分散（異なるエリアを混ぜる）"
+                  value={data.settings.useLocationDiversify}
+                  onToggle={() => handleSettingToggle('useLocationDiversify')}
                 />
                 <ToggleRow
                   label="趣味傾向でグループ分け（同フィールドをまとめる）"
@@ -743,10 +750,11 @@ export default function AdminDashboard() {
 }
 
 const settingKeyMap: Record<keyof Settings, string> = {
-  showWorkLocation:    'show_work_location',
-  showHobbyTendency:   'show_hobby_tendency',
-  useLocationGrouping: 'use_location_grouping',
-  useHobbyGrouping:    'use_hobby_grouping',
+  showWorkLocation:     'show_work_location',
+  showHobbyTendency:    'show_hobby_tendency',
+  useLocationGrouping:  'use_location_grouping',
+  useHobbyGrouping:     'use_hobby_grouping',
+  useLocationDiversify: 'use_location_diversify',
 }
 
 function ToggleRow({

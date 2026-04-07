@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     supabase
       .from('app_settings')
       .select('key, value')
-      .in('key', ['groups_locked', 'show_work_location', 'show_hobby_tendency', 'use_location_grouping', 'use_hobby_grouping']),
+      .in('key', ['groups_locked', 'show_work_location', 'show_hobby_tendency', 'use_location_grouping', 'use_hobby_grouping', 'use_location_diversify']),
     supabase
       .from('departments')
       .select('id, name')
@@ -40,10 +40,11 @@ export async function GET(req: NextRequest) {
     departments: departmentsRes.data ?? [],
     groupsLocked: settingsMap['groups_locked'] === 'true',
     settings: {
-      showWorkLocation:    settingsMap['show_work_location']    === 'true',
-      showHobbyTendency:  settingsMap['show_hobby_tendency']   === 'true',
-      useLocationGrouping: settingsMap['use_location_grouping'] === 'true',
-      useHobbyGrouping:   settingsMap['use_hobby_grouping']    === 'true',
+      showWorkLocation:     settingsMap['show_work_location']    === 'true',
+      showHobbyTendency:   settingsMap['show_hobby_tendency']   === 'true',
+      useLocationGrouping:  settingsMap['use_location_grouping'] === 'true',
+      useHobbyGrouping:    settingsMap['use_hobby_grouping']    === 'true',
+      useLocationDiversify: settingsMap['use_location_diversify'] === 'true',
     },
   })
 }

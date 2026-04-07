@@ -18,6 +18,7 @@ interface GroupAssignment {
 export interface GroupingOptions {
   useLocationGrouping?: boolean
   useHobbyGrouping?: boolean
+  useLocationDiversify?: boolean
 }
 
 /**
@@ -49,16 +50,18 @@ export function createGroups(
 ): GroupAssignment[] {
   if (users.length === 0) return []
 
-  const { useLocationGrouping = false, useHobbyGrouping = false } = options
+  const { useLocationGrouping = false, useHobbyGrouping = false, useLocationDiversify = false } = options
+  // diversify が ON のときは location クラスタリングをしない
+  const effectiveLocationGrouping = useLocationGrouping && !useLocationDiversify
   // location OFF → TGは絶対被らせない / location ON → 極力被らせない
-  const strictTG = !useLocationGrouping
+  const strictTG = !effectiveLocationGrouping
 
-  const clusters = buildClusters(users, useLocationGrouping, useHobbyGrouping, minGroupSize)
+  const clusters = buildClusters(users, effectiveLocationGrouping, useHobbyGrouping, minGroupSize)
 
   const allGroups: UserForGrouping[][] = []
   for (const cluster of clusters) {
-    const { groups, tgCounts } = splitCluster(cluster, targetGroupSize, minGroupSize, strictTG)
-    swapOptimize(groups, tgCounts)
+    const { groups, tgCounts } = splitCluster(cluster, targetGroupSize, minGroupSize, strictTG, useLocationDiversify)
+    swapOptimize(groups, tgCounts, useLocationDiversify)
     allGroups.push(...groups)
   }
 
@@ -248,6 +251,7 @@ function splitCluster(
   targetGroupSize: number,
   minGroupSize: number,
   strictTG: boolean,
+  useLocationDiversify = false,
 ): { groups: UserForGrouping[][], tgCounts: Map<string, number>[] } {
   const n = users.length
 
@@ -321,7 +325,7 @@ function splitCluster(
 
     for (let g = 0; g < groupCount; g++) {
       if ((tgCounts[g].get(tgKey) ?? 0) === 0) {
-        const score = deptScore([...groups[g], user])
+        const score = combinedScore([...groups[g], user], useLocationDiversify)
         if (score < bestScore) {
           bestScore = score
           bestG = g
@@ -382,6 +386,7 @@ function splitCluster(
 function swapOptimize(
   groups: UserForGrouping[][],
   tgCounts: Map<string, number>[],
+  useLocationDiversify = false,
 ): void {
   const groupCount = groups.length
   if (groupCount < 2) return
@@ -413,10 +418,10 @@ function swapOptimize(
             // g2: tg2を出してtg1を入れる → g2にtg1が既にいたらNG
             if ((tgCounts[g2].get(tg1) ?? 0) > 0) continue
 
-            const before = deptScore(groups[g1]) + deptScore(groups[g2])
+            const before = combinedScore(groups[g1], useLocationDiversify) + combinedScore(groups[g2], useLocationDiversify)
             groups[g1][i] = u2
             groups[g2][j] = u1
-            const after = deptScore(groups[g1]) + deptScore(groups[g2])
+            const after = combinedScore(groups[g1], useLocationDiversify) + combinedScore(groups[g2], useLocationDiversify)
             groups[g1][i] = u1
             groups[g2][j] = u2
 
@@ -463,6 +468,23 @@ function interleaveTG(members: UserForGrouping[]): UserForGrouping[] {
     }
   }
   return result
+}
+
+/** 勤務地多様性スコア（低いほど多様） = 同一勤務地人数の二乗和 */
+function locationScore(members: UserForGrouping[]): number {
+  const counts = new Map<string, number>()
+  for (const m of members) {
+    const loc = m.work_location ?? 'その他'
+    counts.set(loc, (counts.get(loc) ?? 0) + 1)
+  }
+  let score = 0
+  for (const c of counts.values()) score += c * c
+  return score
+}
+
+/** 部署 + 勤務地の複合スコア */
+function combinedScore(members: UserForGrouping[], useLocationDiversify: boolean): number {
+  return deptScore(members) + (useLocationDiversify ? locationScore(members) : 0)
 }
 
 /** 部署多様性スコア（低いほど多様） = 同一部署人数の二乗和 */

@@ -6,6 +6,7 @@ const ALLOWED_KEYS = [
   'show_hobby_tendency',
   'use_location_grouping',
   'use_hobby_grouping',
+  'use_location_diversify',
 ] as const
 
 export async function PATCH(req: NextRequest) {
