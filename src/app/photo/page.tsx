@@ -9,6 +9,7 @@ export default function PhotoPage() {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [captured, setCaptured] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -30,7 +31,7 @@ export default function PhotoPage() {
   const startCamera = useCallback(async () => {
     try {
       const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
       })
       setStream(s)
       if (videoRef.current) videoRef.current.srcObject = s
@@ -61,6 +62,26 @@ export default function PhotoPage() {
     setCaptured(null)
     setError('')
     startCamera()
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    stream?.getTracks().forEach(t => t.stop())
+    setStream(null)
+    const url = URL.createObjectURL(file)
+    const img = new window.Image()
+    img.onload = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      canvas.getContext('2d')?.drawImage(img, 0, 0)
+      setCaptured(canvas.toDataURL('image/jpeg', 0.85))
+      URL.revokeObjectURL(url)
+    }
+    img.src = url
+    e.target.value = ''
   }
 
   async function upload() {
@@ -122,13 +143,28 @@ export default function PhotoPage() {
 
       <div className="p-6 bg-black/80 flex justify-center gap-6">
         {!captured ? (
-          <button
-            onClick={capture}
-            disabled={!stream}
-            className="w-20 h-20 rounded-full bg-white border-4 border-gray-400 hover:bg-gray-100 disabled:opacity-50 transition flex items-center justify-center text-3xl"
-          >
-            📷
-          </button>
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-16 h-16 rounded-full bg-gray-700 border-2 border-gray-500 hover:bg-gray-600 transition flex items-center justify-center text-2xl self-center"
+            >
+              🖼️
+            </button>
+            <button
+              onClick={capture}
+              disabled={!stream}
+              className="w-20 h-20 rounded-full bg-white border-4 border-gray-400 hover:bg-gray-100 disabled:opacity-50 transition flex items-center justify-center text-3xl"
+            >
+              📷
+            </button>
+          </>
         ) : (
           <>
             <button
