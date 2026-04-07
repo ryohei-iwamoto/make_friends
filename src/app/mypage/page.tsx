@@ -52,7 +52,13 @@ export default function MyPage() {
   async function handleCancel() {
     if (!confirm('参加をキャンセルしますか？')) return
     setCancelling(true)
-    await fetch('/api/auth/logout', { method: 'POST' })
+    const res = await fetch('/api/auth/delete', { method: 'POST' })
+    if (!res.ok) {
+      const data = await res.json()
+      alert(data.error ?? '削除に失敗しました')
+      setCancelling(false)
+      return
+    }
     router.replace('/')
   }
 
